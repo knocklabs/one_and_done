@@ -1,6 +1,6 @@
 defmodule OneAndDone.PlugTest do
   @moduledoc false
-  use ExUnit.Case
+  use ExUnit.Case, async: true
   use Plug.Test
 
   doctest OneAndDone.Plug
@@ -21,8 +21,10 @@ defmodule OneAndDone.PlugTest do
       Agent.get(__MODULE__, fn cache ->
         ttl = Map.get(cache.ttls, key, :infinity)
 
+        result = Map.get(cache.data, key)
+
         if ttl > after_ttl do
-          Map.get(cache.data, key)
+          result
         else
           nil
         end
@@ -55,15 +57,8 @@ defmodule OneAndDone.PlugTest do
     end
   end
 
-  defmodule TestPlug do
-    @moduledoc false
-    use OneAndDone.Plug,
-      otp_app: :one_and_done
-  end
-
-
   setup do
-    start_supervised!(OneAndDone.TestCache)
+    start_supervised!(TestCache)
 
     :ok
   end
@@ -78,7 +73,7 @@ defmodule OneAndDone.PlugTest do
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", "123")
 
-        assert TestModule.call(conn, []) == conn
+        assert Plug.run(conn, [{OneAndDone.Plug, cache: TestCache}]) == conn
         assert TestCache.dump() == @empty_cache_state
       end)
     end
@@ -87,7 +82,7 @@ defmodule OneAndDone.PlugTest do
       [:post, :put]
       |> Enum.each(fn method ->
         conn = conn(method, "/hello")
-        assert TestModule.call(conn, []) == conn
+        assert Plug.run(conn, [{OneAndDone.Plug, cache: TestCache}]) == conn
         assert TestCache.dump() == @empty_cache_state
       end)
     end
@@ -95,22 +90,22 @@ defmodule OneAndDone.PlugTest do
     test "when the idempotency-key header is set, stores put/post requests in the cache" do
       [:post, :put]
       |> Enum.each(fn method ->
-        TestCache.clear()
+        cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
 
         original_conn =
           conn(method, "/hello")
-          |> Plug.Conn.put_req_header("idempotency-key", "123")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
 
         conn =
           original_conn
-          |> TestModule.call([])
+          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
           |> Plug.Conn.put_resp_header("some-header", "value")
           |> Plug.Conn.send_resp(200, "Okay!")
 
-        refute TestModule.call(original_conn, []) == conn
-        struct = TestCache.get("123") |> elem(1)
+        refute Plug.run(original_conn, [{OneAndDone.Plug, cache: TestCache}]) == conn
+        struct = TestCache.get(cache_key) |> elem(1)
 
         assert struct == %OneAndDone.Response{
                  body: "Okay!",
@@ -128,12 +123,12 @@ defmodule OneAndDone.PlugTest do
     test "when we've seen a request before, we get the old response back" do
       [:post, :put]
       |> Enum.each(fn method ->
-        TestCache.clear()
+        cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
 
         original_conn =
           conn(method, "/hello")
-          |> Plug.Conn.put_req_header("idempotency-key", "123")
-          |> TestModule.call([])
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
           |> Plug.Conn.put_resp_header("some-header", "value")
@@ -141,15 +136,37 @@ defmodule OneAndDone.PlugTest do
 
         new_conn =
           conn(method, "/hello")
-          |> Plug.Conn.put_req_header("idempotency-key", "123")
-          |> TestModule.call([])
-
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
 
         assert new_conn.resp_body == original_conn.resp_body
         assert new_conn.resp_cookies == original_conn.resp_cookies
         assert new_conn.resp_headers == original_conn.resp_headers
         assert new_conn.status == original_conn.status
       end)
+    end
+
+    test "respects TTL" do
+      cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
+
+      original_conn =
+        conn(:post, "/hello")
+        |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+        |> Plug.run([{OneAndDone.Plug, cache: TestCache, ttl: 0}])
+        |> Plug.Conn.put_resp_content_type("text/plain")
+        |> Plug.Conn.put_resp_cookie("some-cookie", "value")
+        |> Plug.Conn.put_resp_header("some-header", "value")
+        |> Plug.Conn.send_resp(200, "Okay!")
+
+      new_conn =
+        conn(:post, "/hello")
+        |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+        |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+
+      refute new_conn.resp_body == original_conn.resp_body
+      refute new_conn.resp_cookies == original_conn.resp_cookies
+      refute new_conn.resp_headers == original_conn.resp_headers
+      refute new_conn.status == original_conn.status
     end
   end
 end
