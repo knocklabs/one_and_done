@@ -23,13 +23,21 @@ defmodule OneAndDone.Plug do
           cache: MyApp.Cache,
 
           # Optional: How long to keep entries, defaults to 86_400 (24 hours)
-          ttl: 86_400, # 24 hours (default)
+          ttl: 86_400,
 
-          # Optional: Function to generate the cache key for a given request.
+          # Optional: Which methods to cache, defaults to ["POST", "PUT"]
+          supported_methods: ["POST", "PUT"],
+
+          # Optional: Function to generate the idempotency key for a given request.
           # By default, uses the value of the "Idempotency-Key" header.
           # Must return a binary or nil. If nil is returned, the request will not be cached.
-          cache_key_fn: fn conn -> Plug.Conn.get_req_header(conn, "Some other header") end
+          idempotency_key_fn: fn conn -> Plug.Conn.get_req_header(conn, "Some other header") |> List.first() end
 
+          # Optional: Function to generate the cache key for a given request.
+          # Given the idempotency key (returned from idempotency_key_fn), this function
+          # should return a term that will be used as the cache key.
+          # By default, it returns a tuple of the module name and the idempotency key.
+          cache_key_fn: fn idempotency_key -> {__MODULE__, idempotency_key}
       end
       ```
 
@@ -49,19 +57,16 @@ defmodule OneAndDone.Plug do
   def init(opts) do
     %{
       cache: Keyword.get(opts, :cache) || raise("Cache must be set"),
+      ttl: Keyword.get(opts, :ttl, @ttl),
       supported_methods: Keyword.get(opts, :supported_methods, @supported_methods),
       idempotency_key_fn: Keyword.get(opts, :idempotency_key_fn, &idempotency_key_from_conn/1),
       cache_key_fn: Keyword.get(opts, :cache_key_fn, &build_cache_key/1),
-      ttl: Keyword.get(opts, :ttl, @ttl)
     }
   end
 
   @impl Plug
-  def call(
-        conn,
-        opts
-      ) do
-    if method_is_idempotent?(conn, opts) do
+  def call(conn, opts) do
+    if is_idempotent?(conn, opts) do
       idempotency_key = opts.idempotency_key_fn.(conn)
       handle_idempotent_request(conn, idempotency_key, opts)
     else
@@ -69,7 +74,7 @@ defmodule OneAndDone.Plug do
     end
   end
 
-  defp method_is_idempotent?(conn, opts) do
+  defp is_idempotent?(conn, opts) do
     Enum.any?(opts.supported_methods, &(&1 == conn.method))
   end
 
@@ -106,10 +111,9 @@ defmodule OneAndDone.Plug do
   end
 
   defp idempotency_key_from_conn(%Plug.Conn{} = conn) do
-    case Plug.Conn.get_req_header(conn, "idempotency-key") do
-      [key | _] -> key
-      [] -> nil
-    end
+    conn
+    |> Plug.Conn.get_req_header("idempotency-key")
+    |> List.first()
   end
 
   defp build_cache_key(idempotency_key), do: {__MODULE__, idempotency_key}

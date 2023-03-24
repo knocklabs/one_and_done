@@ -4,7 +4,7 @@ defmodule OneAndDone do
 
     Its only dependency is a cache to store requests in (Nebulex works great).
 
-    Usage is framework-dependent. Currently, OneAndDone supports the following frameworks:any()
+    Usage is framework-dependent. Currently, OneAndDone supports the following frameworks:
 
     * Plug
 

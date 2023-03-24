@@ -17,24 +17,23 @@ defmodule OneAndDone.PlugTest do
       Agent.start_link(fn -> @default_state end, name: __MODULE__)
     end
 
-    def get(key, after_ttl \\ 0) do
+    def get(key) do
       Agent.get(__MODULE__, fn cache ->
-        ttl = Map.get(cache.ttls, key, :infinity)
-
-        result = Map.get(cache.data, key)
-
-        if ttl > after_ttl do
-          result
+        with {:ok, ttl} <- Map.fetch(cache.ttls, key),
+             :gt <- DateTime.compare(ttl, DateTime.utc_now()) do
+          Map.get(cache.data, key)
         else
-          nil
+          _ -> nil
         end
       end)
     end
 
-    def put(key, value, ttl) do
+    def put(key, value, opts) do
+      ttl = Keyword.fetch!(opts, :ttl)
+
       Agent.update(__MODULE__, fn cache ->
         cache
-        |> put_in([:ttls, key], ttl)
+        |> put_in([:ttls, key], DateTime.utc_now() |> DateTime.add(ttl, :millisecond))
         |> put_in([:data, key], value)
       end)
     end
@@ -146,6 +145,32 @@ defmodule OneAndDone.PlugTest do
       end)
     end
 
+    test "when we've seen a request before, it halts the processing pipeline" do
+      [:post, :put]
+      |> Enum.each(fn method ->
+        cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
+
+        _original_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.Conn.put_resp_content_type("text/plain")
+          |> Plug.Conn.put_resp_cookie("some-cookie", "value")
+          |> Plug.Conn.put_resp_header("some-header", "value")
+          |> Plug.Conn.send_resp(200, "Okay!")
+
+        assert_raise Plug.Conn.AlreadySentError, fn ->
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.Conn.put_resp_content_type("text/plain")
+          |> Plug.Conn.put_resp_cookie("some-cookie", "different value")
+          |> Plug.Conn.put_resp_header("some-header", "different value")
+          |> Plug.Conn.send_resp(201, "Different response")
+        end
+      end)
+    end
+
     test "respects TTL" do
       cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
 
@@ -158,10 +183,16 @@ defmodule OneAndDone.PlugTest do
         |> Plug.Conn.put_resp_header("some-header", "value")
         |> Plug.Conn.send_resp(200, "Okay!")
 
+      Process.sleep(10)
+
       new_conn =
         conn(:post, "/hello")
         |> Plug.Conn.put_req_header("idempotency-key", cache_key)
         |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+        |> Plug.Conn.put_resp_content_type("text/plain")
+        |> Plug.Conn.put_resp_cookie("some-cookie", "different value")
+        |> Plug.Conn.put_resp_header("some-header", "different value")
+        |> Plug.Conn.send_resp(201, "Different response")
 
       refute new_conn.resp_body == original_conn.resp_body
       refute new_conn.resp_cookies == original_conn.resp_cookies

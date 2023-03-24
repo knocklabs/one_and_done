@@ -8,10 +8,12 @@ defmodule OneAndDone.Cache do
   @doc """
   Retreive a value from the cache.
   """
-  @callback get(key :: any(), opts :: Keyword.t()) :: any | nil
+  @callback get(key :: any()) :: any | nil
 
   @doc """
-  Put a value into the cache.
+  Store a value in the cache under the given key.
+
+  Opts must include a TTL, given in milliseconds.
   """
-  @callback put(key :: any(), value :: any(), opts :: Keyword.t()) :: :ok
+  @callback put(key :: any(), value :: any(), opts :: [ttl: pos_integer()]) :: :ok
 end
