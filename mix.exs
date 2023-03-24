@@ -12,7 +12,8 @@ defmodule OneAndDone.MixProject do
       description: description(),
       source_url: "https://github.com/knocklabs/one-and-done",
       docs: [
-        main: "README", # The main page in the docs
+        # The main page in the docs
+        main: "README",
         extras: ["README.md"]
       ],
       start_permanent: Mix.env() == :prod,

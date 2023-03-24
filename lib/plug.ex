@@ -52,7 +52,7 @@ defmodule OneAndDone.Plug do
   @ttl :timer.hours(24)
 
   @impl Plug
-  @spec init([cache: OneAndDone.Cache.t()]) :: %{
+  @spec init(cache: OneAndDone.Cache.t()) :: %{
           cache: any,
           cache_key_fn: any,
           idempotency_key_fn: any,
@@ -65,7 +65,7 @@ defmodule OneAndDone.Plug do
       ttl: Keyword.get(opts, :ttl, @ttl),
       supported_methods: Keyword.get(opts, :supported_methods, @supported_methods),
       idempotency_key_fn: Keyword.get(opts, :idempotency_key_fn, &idempotency_key_from_conn/1),
-      cache_key_fn: Keyword.get(opts, :cache_key_fn, &build_cache_key/1),
+      cache_key_fn: Keyword.get(opts, :cache_key_fn, &build_cache_key/1)
     }
   end
 
@@ -88,9 +88,14 @@ defmodule OneAndDone.Plug do
 
   defp handle_idempotent_request(conn, idempotency_key, opts) do
     case opts.cache.get(idempotency_key) do
-      {:ok, cached_response} -> handle_cache_hit(conn, cached_response)
+      {:ok, cached_response} ->
+        handle_cache_hit(conn, cached_response)
+
       # Cache miss passes through; we cache the response in the response callback
-      _ -> Plug.Conn.register_before_send(conn, fn conn -> cache_response(conn, idempotency_key, opts) end)
+      _ ->
+        Plug.Conn.register_before_send(conn, fn conn ->
+          cache_response(conn, idempotency_key, opts)
+        end)
     end
   end
 
