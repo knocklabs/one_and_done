@@ -28,7 +28,7 @@ defmodule MyAppWeb.Router do
 
   pipeline :api do
     # Configuration options for OneAndDone are in the docs
-    plug OneAndDone, cache: MyApp.Cache
+    plug OneAndDone.Plug, cache: MyApp.Cache
   end
 
   # By default, all POST and PUT requests piped through :api
