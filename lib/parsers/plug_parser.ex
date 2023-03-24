@@ -5,6 +5,10 @@ defimpl OneAndDone.Response.Parser, for: Plug.Conn do
 
   alias OneAndDone.Response
 
+  @spec build_response(Plug.Conn.t()) :: OneAndDone.Response.t()
+  @doc """
+  Builds a OneAndDone.Response from a Plug.Conn.
+  """
   def build_response(%Plug.Conn{} = conn) do
     %Response{
       status: conn.status,

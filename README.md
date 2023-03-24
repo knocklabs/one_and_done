@@ -55,7 +55,8 @@ curl -X POST \
   }'
 ```
 
-Repeat the request with the same `Idempotency-Key` header and you will get the same response.
+Repeat the request with the same `Idempotency-Key` header and you will get the same response
+without the request being processed again.
 
 
 Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)

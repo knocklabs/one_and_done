@@ -23,5 +23,6 @@ defmodule OneAndDone.Response do
     :headers
   ]
 
+  @spec build_response(any) :: OneAndDone.Response.t()
   defdelegate build_response(value), to: OneAndDone.Response.Parser
 end

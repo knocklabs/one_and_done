@@ -44,8 +44,6 @@ defmodule OneAndDone.Plug do
       That's it! POST and PUT requests will now be cached by default for 24 hours.
   """
 
-  import Plug.Conn
-
   @behaviour Plug
 
   alias OneAndDone.Response
@@ -54,6 +52,13 @@ defmodule OneAndDone.Plug do
   @ttl :timer.hours(24)
 
   @impl Plug
+  @spec init([cache: OneAndDone.Cache.t()]) :: %{
+          cache: any,
+          cache_key_fn: any,
+          idempotency_key_fn: any,
+          supported_methods: any,
+          ttl: any
+        }
   def init(opts) do
     %{
       cache: Keyword.get(opts, :cache) || raise("Cache must be set"),
@@ -85,7 +90,7 @@ defmodule OneAndDone.Plug do
     case opts.cache.get(idempotency_key) do
       {:ok, cached_response} -> handle_cache_hit(conn, cached_response)
       # Cache miss passes through; we cache the response in the response callback
-      _ -> register_before_send(conn, fn conn -> cache_response(conn, idempotency_key, opts) end)
+      _ -> Plug.Conn.register_before_send(conn, fn conn -> cache_response(conn, idempotency_key, opts) end)
     end
   end
 
