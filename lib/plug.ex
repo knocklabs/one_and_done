@@ -28,16 +28,18 @@ defmodule OneAndDone.Plug do
           # Optional: Which methods to cache, defaults to ["POST", "PUT"]
           supported_methods: ["POST", "PUT"],
 
-          # Optional: Function to generate the idempotency key for a given request.
+          # Optional: Function reference to generate the idempotency key for a given request.
           # By default, uses the value of the "Idempotency-Key" header.
           # Must return a binary or nil. If nil is returned, the request will not be cached.
-          idempotency_key_fn: fn conn -> Plug.Conn.get_req_header(conn, "Some other header") |> List.first() end
+          # Default function implementation: fn conn -> Plug.Conn.get_req_header(conn, "Some other header") |> List.first() end
+          idempotency_key_fn: &__MODULE__.idempotency_key_from_conn/2
 
-          # Optional: Function to generate the cache key for a given request.
-          # Given the idempotency key (returned from idempotency_key_fn), this function
+          # Optional: Function reference to generate the cache key for a given request.
+          # Given the conn & idempotency key (returned from idempotency_key_fn), this function
           # should return a term that will be used as the cache key.
           # By default, it returns a tuple of the module name and the idempotency key.
-          cache_key_fn: fn idempotency_key -> {__MODULE__, idempotency_key}
+          # Default function implementation: fn _conn, idempotency_key -> {__MODULE__, idempotency_key}
+          cache_key_fn: &__MODULE__.build_cache_key/2
       end
       ```
 
@@ -64,8 +66,9 @@ defmodule OneAndDone.Plug do
       cache: Keyword.get(opts, :cache) || raise("Cache must be set"),
       ttl: Keyword.get(opts, :ttl, @ttl),
       supported_methods: Keyword.get(opts, :supported_methods, @supported_methods),
-      idempotency_key_fn: Keyword.get(opts, :idempotency_key_fn, &idempotency_key_from_conn/1),
-      cache_key_fn: Keyword.get(opts, :cache_key_fn, &build_cache_key/1)
+      idempotency_key_fn:
+        Keyword.get(opts, :idempotency_key_fn, &__MODULE__.idempotency_key_from_conn/1),
+      cache_key_fn: Keyword.get(opts, :cache_key_fn, &__MODULE__.build_cache_key/2)
     }
   end
 
@@ -87,7 +90,7 @@ defmodule OneAndDone.Plug do
   defp handle_idempotent_request(conn, nil, _), do: conn
 
   defp handle_idempotent_request(conn, idempotency_key, opts) do
-    case opts.cache.get(idempotency_key) do
+    case opts.cache_key_fn.(conn, idempotency_key) |> opts.cache.get() do
       {:ok, cached_response} ->
         handle_cache_hit(conn, cached_response)
 
@@ -111,20 +114,28 @@ defmodule OneAndDone.Plug do
       end)
 
     Plug.Conn.send_resp(conn, response.status, response.body)
+    |> Plug.Conn.halt()
   end
 
   defp cache_response(conn, idempotency_key, opts) do
     response = Response.build_response(conn)
-    opts.cache.put(idempotency_key, {:ok, response}, ttl: opts.ttl)
+
+    conn
+    |> opts.cache_key_fn.(idempotency_key)
+    |> opts.cache.put({:ok, response}, ttl: opts.ttl)
 
     conn
   end
 
-  defp idempotency_key_from_conn(%Plug.Conn{} = conn) do
+  # These functions must be public to avoid an ArgumentError during compilation.
+
+  @doc false
+  def idempotency_key_from_conn(%Plug.Conn{} = conn) do
     conn
     |> Plug.Conn.get_req_header("idempotency-key")
     |> List.first()
   end
 
-  defp build_cache_key(idempotency_key), do: {__MODULE__, idempotency_key}
+  @doc false
+  def build_cache_key(_conn, idempotency_key), do: {__MODULE__, idempotency_key}
 end

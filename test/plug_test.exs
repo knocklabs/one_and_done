@@ -104,7 +104,7 @@ defmodule OneAndDone.PlugTest do
           |> Plug.Conn.send_resp(200, "Okay!")
 
         refute Plug.run(original_conn, [{OneAndDone.Plug, cache: TestCache}]) == conn
-        struct = TestCache.get(cache_key) |> elem(1)
+        struct = TestCache.get({OneAndDone.Plug, cache_key}) |> elem(1)
 
         assert struct == %OneAndDone.Response{
                  body: "Okay!",
@@ -159,15 +159,12 @@ defmodule OneAndDone.PlugTest do
           |> Plug.Conn.put_resp_header("some-header", "value")
           |> Plug.Conn.send_resp(200, "Okay!")
 
-        assert_raise Plug.Conn.AlreadySentError, fn ->
+        new_conn =
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
           |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
-          |> Plug.Conn.put_resp_content_type("text/plain")
-          |> Plug.Conn.put_resp_cookie("some-cookie", "different value")
-          |> Plug.Conn.put_resp_header("some-header", "different value")
-          |> Plug.Conn.send_resp(201, "Different response")
-        end
+
+        assert new_conn.state == :sent
       end)
     end
 
