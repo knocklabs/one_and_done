@@ -13,7 +13,7 @@ defmodule OneAndDone.MixProject do
       source_url: "https://github.com/knocklabs/one-and-done",
       docs: [
         # The main page in the docs
-        main: "README",
+        main: "readme",
         extras: ["README.md"]
       ],
       start_permanent: Mix.env() == :prod,
@@ -35,6 +35,7 @@ defmodule OneAndDone.MixProject do
   defp deps do
     [
       {:plug, "~> 1.14"},
+      {:telemetry, "~> 1.0"},
       {:credo, "~> 1.4", only: [:dev, :test], runtime: false},
       {:mix_test_watch, "~> 1.0", only: :dev, runtime: false},
       {:ex_doc, "~> 0.29", only: :dev, runtime: false}

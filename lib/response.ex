@@ -5,8 +5,8 @@ defmodule OneAndDone.Response do
   Response structs are stored in the cache so that idempotent requests can be
   quickly returned.
 
-  See OneAndDone.Response.Parser for turning an inbound connection (e.g. a Plug.Conn)
-  into a OneAndDone.Response.
+  See `OneAndDone.Response.Parser` for turning an inbound connection (e.g. a Plug.Conn)
+  into a `OneAndDone.Response`.
   """
 
   @type t :: %__MODULE__{
@@ -16,6 +16,7 @@ defmodule OneAndDone.Response do
           headers: [{binary(), binary()}]
         }
 
+  @enforce_keys [:status, :body, :cookies, :headers]
   defstruct [
     :status,
     :body,

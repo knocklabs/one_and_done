@@ -6,7 +6,7 @@ defmodule OneAndDone do
 
     Usage is framework-dependent. Currently, OneAndDone supports the following frameworks:
 
-    * Plug
+    * `OneAndDone.Plug`
 
     Other frameworks are welcome too!
 

@@ -2,7 +2,11 @@ defmodule OneAndDone.Cache do
   @moduledoc """
   Defines the most basic cache interface.
 
-  Should be compliant with [Nebulex's cache](https://hexdocs.pm/nebulex/Nebulex.Cache.html).
+  This module is used as a reference for Cache implementations. Although not used by
+  OneAndDone, Cache implementations should be compliant with this module.
+
+  This module is compliant with `Nebulex.Cache`. If you use Nebulex, you
+  are already compliant with this module.
   """
 
   @doc """

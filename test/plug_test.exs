@@ -64,6 +64,14 @@ defmodule OneAndDone.PlugTest do
 
   @empty_cache_state %{data: %{}, ttls: %{}}
 
+  describe "init/1" do
+    test "raises an error if the cache is not set" do
+      assert_raise OneAndDone.Errors.CacheMissingError, fn ->
+        OneAndDone.Plug.init([])
+      end
+    end
+  end
+
   describe "call/2" do
     test "does nothing with non-idempotent requests" do
       [:get, :delete, :patch]
@@ -140,7 +148,10 @@ defmodule OneAndDone.PlugTest do
 
         assert new_conn.resp_body == original_conn.resp_body
         assert new_conn.resp_cookies == original_conn.resp_cookies
-        assert new_conn.resp_headers == original_conn.resp_headers
+
+        assert new_conn.resp_headers -- [{"idempotent-replayed", "true"}] ==
+                 original_conn.resp_headers
+
         assert new_conn.status == original_conn.status
       end)
     end
@@ -165,6 +176,30 @@ defmodule OneAndDone.PlugTest do
           |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
 
         assert new_conn.state == :sent
+      end)
+    end
+
+    test "when we've seen a request before, the idempotent-replayed header is set" do
+      [:post, :put]
+      |> Enum.each(fn method ->
+        cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
+
+        original_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.Conn.put_resp_content_type("text/plain")
+          |> Plug.Conn.put_resp_cookie("some-cookie", "value")
+          |> Plug.Conn.put_resp_header("some-header", "value")
+          |> Plug.Conn.send_resp(200, "Okay!")
+
+        new_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+
+        assert Plug.Conn.get_resp_header(new_conn, "idempotent-replayed") == ["true"]
+        refute Plug.Conn.get_resp_header(original_conn, "idempotent-replayed") == ["true"]
       end)
     end
 

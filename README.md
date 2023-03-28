@@ -4,7 +4,7 @@ One and Done is the easiest way to make HTTP requests idempotent in Elixir appli
 
 One and Done supports the following frameworks:
 
-* `Plug` (including Phoenix)
+* `Plug` (including `Phoenix`)
 
 ## Usage
 
@@ -57,9 +57,4 @@ curl -X POST \
 
 Repeat the request with the same `Idempotency-Key` header and you will get the same response
 without the request being processed again.
-
-
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/one_and_done>.
 
