@@ -1,4 +1,4 @@
-# One And Done
+# One and Done
 
 One and Done is the easiest way to make HTTP requests idempotent in Elixir applications.
 
@@ -8,7 +8,7 @@ One and Done supports the following frameworks:
 
 ## Usage
 
-One and done depends on having a pre-existing cache like [Nebulex](https://hexdocs.pm/nebulex/Nebulex.html). This guide assumes Nebulex is already configured under `MyApp.Cache`.
+One and Done depends on having a pre-existing cache like [Nebulex](https://hexdocs.pm/nebulex/Nebulex.html). This guide assumes Nebulex is already configured under `MyApp.Cache`.
 
 1. Add `one_and_done` to your `mix.exs` dependencies:
 

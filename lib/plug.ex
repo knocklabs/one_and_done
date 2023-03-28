@@ -144,7 +144,8 @@ defmodule OneAndDone.Plug do
   defp handle_idempotent_request(conn, idempotency_key, opts) do
     case check_cache(conn, idempotency_key, opts) do
       {:ok, cached_response} ->
-        Telemetry.event([:request, :cache_hit], %{idempotency_key: idempotency_key}, %{
+        Telemetry.event([:request, :cache_hit], %{}, %{
+          idempotency_key: idempotency_key,
           conn: conn,
           response: cached_response
         })
@@ -153,7 +154,8 @@ defmodule OneAndDone.Plug do
 
       # Cache miss passes through; we cache the response in the response callback
       _ ->
-        Telemetry.event([:request, :cache_miss], %{idempotency_key: idempotency_key}, %{
+        Telemetry.event([:request, :cache_miss], %{}, %{
+          idempotency_key: idempotency_key,
           conn: conn
         })
 
