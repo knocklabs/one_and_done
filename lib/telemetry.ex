@@ -115,7 +115,6 @@ defmodule OneAndDone.Telemetry do
     |> :telemetry.execute(metrics, meta)
   end
 
-
   defp build_name(paths) when is_list(paths), do: [@namespace | paths]
   defp build_name(path) when is_atom(path), do: [@namespace, path]
 

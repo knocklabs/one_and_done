@@ -5,8 +5,8 @@ defmodule OneAndDone.Errors.CacheMissingError do
   """
 
   defexception message: """
-  A cache was not configured for OneAndDone. Check the docs for
-  the OneAndDone module you are using (e.g. OneAndDone.Plug) for
-  details on how to configure a cache.
-  """
+               A cache was not configured for OneAndDone. Check the docs for
+               the OneAndDone module you are using (e.g. OneAndDone.Plug) for
+               details on how to configure a cache.
+               """
 end

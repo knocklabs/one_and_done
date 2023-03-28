@@ -117,7 +117,7 @@ defmodule OneAndDone.Plug do
         }
   def init(opts) do
     %{
-      cache: (Keyword.get(opts, :cache) || raise OneAndDone.Errors.CacheMissingError),
+      cache: Keyword.get(opts, :cache) || raise(OneAndDone.Errors.CacheMissingError),
       ttl: Keyword.get(opts, :ttl, @ttl),
       supported_methods: Keyword.get(opts, :supported_methods, @supported_methods),
       idempotency_key_fn:
