@@ -203,6 +203,60 @@ defmodule OneAndDone.PlugTest do
       end)
     end
 
+    test "when we've seen a request before and x-request-id is set, the x-request-id header is different and the x-original-request-id header is set" do
+      [:post, :put]
+      |> Enum.each(fn method ->
+        cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
+
+        original_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.Conn.put_resp_content_type("text/plain")
+          |> Plug.Conn.put_resp_cookie("some-cookie", "value")
+          |> Plug.Conn.put_resp_header("some-header", "value")
+          |> Plug.Conn.put_resp_header("x-request-id", "1234")
+          |> Plug.Conn.send_resp(200, "Okay!")
+
+        new_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.Conn.put_resp_header("x-request-id", "5678")
+          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+
+        refute Plug.Conn.get_resp_header(new_conn, "x-request-id") ==
+                 Plug.Conn.get_resp_header(original_conn, "x-request-id")
+
+        assert Plug.Conn.get_resp_header(new_conn, "x-original-request-id") ==
+                 Plug.Conn.get_resp_header(original_conn, "x-request-id")
+      end)
+    end
+
+    test "when we've seen a request before, we can ignore response headers from the cache" do
+      [:post, :put]
+      |> Enum.each(fn method ->
+        cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
+
+        _original_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.Conn.put_resp_content_type("text/plain")
+          |> Plug.Conn.put_resp_cookie("some-cookie", "value")
+          |> Plug.Conn.put_resp_header("some-header", "value")
+          |> Plug.Conn.send_resp(200, "Okay!")
+
+        new_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([
+            {OneAndDone.Plug, cache: TestCache, ignored_response_headers: ["some-header"]}
+          ])
+
+        assert [] == Plug.Conn.get_resp_header(new_conn, "some-header")
+      end)
+    end
+
     test "respects TTL" do
       cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
 

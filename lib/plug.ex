@@ -32,6 +32,14 @@ defmodule OneAndDone.Plug do
           # `supported_methods` is available in the opts passed to the idempotency_key_fn.
           supported_methods: ["POST", "PUT"],
 
+          # Optional: Which response headers to ignore when caching, defaults to ["x-request-id"]
+          # When returning a cached response, some headers should not be modified by the contents of the cache.
+          # By default, the "x-request-id" header is not modified. This means that each request will have a
+          # unique "x-request-id" header, even if a cached response is returned for a request.
+          #
+          # If you are using a framework that sets a different header for request IDs, you can add it to this list.
+          ignored_response_headers: ["x-request-id"],
+
           # Optional: Function reference to generate the idempotency key for a given request.
           # By default, uses the value of the "Idempotency-Key" header.
           # Must return a binary or nil. If nil is returned, the request will not be cached.
@@ -64,6 +72,16 @@ defmodule OneAndDone.Plug do
   To monitor the performance of the OneAndDone plug, you can hook into `OneAndDone.Telemetry`.
 
   For a complete list of events, see `OneAndDone.Telemetry.events/0`.
+
+  ## Response headers
+
+  By default, the "x-request-id" header is not modified. This means that each request will have a
+  unique "x-request-id" header, even if a cached response is returned for a request.
+
+  One and Done sets the "idempotent-replayed" header to "true" if a cached response is returned.
+
+  One and Done sets the "x-original-request-id" header to the value of the "x-request-id" header
+  from the original request. This is useful for tracing the original request that was cached.
 
   ### Example
 
@@ -112,6 +130,7 @@ defmodule OneAndDone.Plug do
           cache: any,
           cache_key_fn: any,
           idempotency_key_fn: any,
+          ignored_response_headers: any,
           supported_methods: any,
           ttl: any
         }
@@ -120,6 +139,7 @@ defmodule OneAndDone.Plug do
       cache: Keyword.get(opts, :cache) || raise(OneAndDone.Errors.CacheMissingError),
       ttl: Keyword.get(opts, :ttl, @ttl),
       supported_methods: Keyword.get(opts, :supported_methods, @supported_methods),
+      ignored_response_headers: Keyword.get(opts, :ignored_response_headers, ["x-request-id"]),
       idempotency_key_fn:
         Keyword.get(opts, :idempotency_key_fn, &__MODULE__.idempotency_key_from_conn/2),
       cache_key_fn: Keyword.get(opts, :cache_key_fn, &__MODULE__.build_cache_key/2)
@@ -150,7 +170,7 @@ defmodule OneAndDone.Plug do
           response: cached_response
         })
 
-        handle_cache_hit(conn, cached_response)
+        handle_cache_hit(conn, cached_response, opts)
 
       # Cache miss passes through; we cache the response in the response callback
       _ ->
@@ -173,20 +193,39 @@ defmodule OneAndDone.Plug do
     end)
   end
 
-  defp handle_cache_hit(conn, response) do
+  defp handle_cache_hit(conn, response, opts) do
     conn =
       Enum.reduce(response.cookies, conn, fn {key, %{value: value}}, conn ->
         Plug.Conn.put_resp_cookie(conn, key, value)
       end)
 
     conn =
-      Enum.reduce(response.headers, conn, fn {key, value}, conn ->
-        Plug.Conn.put_resp_header(conn, key, value)
+      Enum.reduce(response.headers, conn, fn
+        {key, value}, conn ->
+          if key in opts.ignored_response_headers do
+            conn
+          else
+            Plug.Conn.put_resp_header(conn, key, value)
+          end
       end)
       |> Plug.Conn.put_resp_header("idempotent-replayed", "true")
+      |> maybe_set_original_request_id(response)
 
     Plug.Conn.send_resp(conn, response.status, response.body)
     |> Plug.Conn.halt()
+  end
+
+  defp maybe_set_original_request_id(conn, response) do
+    case Enum.find_value(response.headers, fn
+           {"x-request-id", original_request_id} -> original_request_id
+           _ -> nil
+         end) do
+      nil ->
+        conn
+
+      original_request_id ->
+        Plug.Conn.put_resp_header(conn, "x-original-request-id", original_request_id)
+    end
   end
 
   defp cache_response(conn, idempotency_key, opts) do
