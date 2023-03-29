@@ -1,0 +1,15 @@
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v2
+
+      - name: Publish to Hex.pm
+        uses: wesleimp/action-publish-hex@v1
+        env:
+          HEX_API_KEY: ${{ secrets.KNOCK_HEX_API_KEY }}
