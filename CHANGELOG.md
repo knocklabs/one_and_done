@@ -1,7 +1,7 @@
 ## 0.1.1
 
 * Fix bug in `OneAndDone.Plug` where `x-request-id` was being overwritten.
-* Introduce `x-original-request-id` header to preserve the original request ID.
+* When ignoring headers, provide the original header value in the `original-` prefixed header (e.g. `original-x-request-id`)
 
 ## 0.1.0
 
