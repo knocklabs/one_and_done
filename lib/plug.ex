@@ -34,14 +34,18 @@ defmodule OneAndDone.Plug do
 
           # Optional: Which response headers to ignore when caching, defaults to ["x-request-id"]
           # When returning a cached response, some headers should not be modified by the contents of the cache.
-          # By default, the "x-request-id" header is not modified. This means that each request will have a
-          # unique "x-request-id" header, even if a cached response is returned for a request.
+          #
+          # Instead, the ignored headers are returned with the prefix `original-`.
+          #
+          # By default, the `x-request-id` header is not modified. This means that each request will have a
+          # unique `x-request-id` header, even if a cached response is returned for a request. The original request
+          # ID is still available under `original-x-request-id`.
           #
           # If you are using a framework that sets a different header for request IDs, you can add it to this list.
           ignored_response_headers: ["x-request-id"],
 
           # Optional: Function reference to generate the idempotency key for a given request.
-          # By default, uses the value of the "Idempotency-Key" header.
+          # By default, uses the value of the `Idempotency-Key` header.
           # Must return a binary or nil. If nil is returned, the request will not be cached.
           # Default function implementation:
           #
@@ -67,21 +71,21 @@ defmodule OneAndDone.Plug do
 
   That's it! POST and PUT requests will now be cached by default for 24 hours.
 
-  ## Telemetry
-
-  To monitor the performance of the OneAndDone plug, you can hook into `OneAndDone.Telemetry`.
-
-  For a complete list of events, see `OneAndDone.Telemetry.events/0`.
-
   ## Response headers
 
   By default, the "x-request-id" header is not modified. This means that each request will have a
   unique "x-request-id" header, even if a cached response is returned for a request.
 
+  By default, the "original-x-request-id" header is set to the value of the "x-request-id" header
+  from the original request. This is useful for tracing the original request that was cached.
+
   One and Done sets the "idempotent-replayed" header to "true" if a cached response is returned.
 
-  One and Done sets the "x-original-request-id" header to the value of the "x-request-id" header
-  from the original request. This is useful for tracing the original request that was cached.
+  ## Telemetry
+
+  To monitor the performance of the OneAndDone plug, you can hook into `OneAndDone.Telemetry`.
+
+  For a complete list of events, see `OneAndDone.Telemetry.events/0`.
 
   ### Example
 
@@ -203,29 +207,15 @@ defmodule OneAndDone.Plug do
       Enum.reduce(response.headers, conn, fn
         {key, value}, conn ->
           if key in opts.ignored_response_headers do
-            conn
+            Plug.Conn.put_resp_header(conn, "original-#{key}", value)
           else
             Plug.Conn.put_resp_header(conn, key, value)
           end
       end)
       |> Plug.Conn.put_resp_header("idempotent-replayed", "true")
-      |> maybe_set_original_request_id(response)
 
     Plug.Conn.send_resp(conn, response.status, response.body)
     |> Plug.Conn.halt()
-  end
-
-  defp maybe_set_original_request_id(conn, response) do
-    case Enum.find_value(response.headers, fn
-           {"x-request-id", original_request_id} -> original_request_id
-           _ -> nil
-         end) do
-      nil ->
-        conn
-
-      original_request_id ->
-        Plug.Conn.put_resp_header(conn, "x-original-request-id", original_request_id)
-    end
   end
 
   defp cache_response(conn, idempotency_key, opts) do

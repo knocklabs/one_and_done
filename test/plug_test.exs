@@ -203,7 +203,7 @@ defmodule OneAndDone.PlugTest do
       end)
     end
 
-    test "when we've seen a request before and x-request-id is set, the x-request-id header is different and the x-original-request-id header is set" do
+    test "by default, ignores x-request-id and returns original-x-request-id for the original request's x-request-id" do
       [:post, :put]
       |> Enum.each(fn method ->
         cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
@@ -227,12 +227,12 @@ defmodule OneAndDone.PlugTest do
         refute Plug.Conn.get_resp_header(new_conn, "x-request-id") ==
                  Plug.Conn.get_resp_header(original_conn, "x-request-id")
 
-        assert Plug.Conn.get_resp_header(new_conn, "x-original-request-id") ==
+        assert Plug.Conn.get_resp_header(new_conn, "original-x-request-id") ==
                  Plug.Conn.get_resp_header(original_conn, "x-request-id")
       end)
     end
 
-    test "when we've seen a request before, we can ignore response headers from the cache" do
+    test "ignored response headers are returned without modification, but the original matching header is still returned" do
       [:post, :put]
       |> Enum.each(fn method ->
         cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
@@ -240,7 +240,9 @@ defmodule OneAndDone.PlugTest do
         _original_conn =
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
-          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.run([
+            {OneAndDone.Plug, cache: TestCache, ignored_response_headers: ["some-header"]}
+          ])
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
           |> Plug.Conn.put_resp_header("some-header", "value")
@@ -249,11 +251,13 @@ defmodule OneAndDone.PlugTest do
         new_conn =
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.Conn.put_resp_header("some-header", "not the same value")
           |> Plug.run([
             {OneAndDone.Plug, cache: TestCache, ignored_response_headers: ["some-header"]}
           ])
 
-        assert [] == Plug.Conn.get_resp_header(new_conn, "some-header")
+        assert ["not the same value"] == Plug.Conn.get_resp_header(new_conn, "some-header")
+        assert ["value"] == Plug.Conn.get_resp_header(new_conn, "original-some-header")
       end)
     end
 
