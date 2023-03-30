@@ -10,6 +10,6 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Publish to Hex.pm
-        uses: wesleimp/action-publish-hex@v1
+        uses: brentjanderson/action-publish-hex
         env:
           HEX_API_KEY: ${{ secrets.KNOCK_HEX_API_KEY }}
