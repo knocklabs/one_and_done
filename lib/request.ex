@@ -2,6 +2,10 @@ defmodule OneAndDone.Request do
   @moduledoc """
   Capture the request information that we want to cache.
 
+  Headers are not included in the cache key because they can change
+  from request to request and should not influence the substance of
+  the request being made to a controller.
+
   Generally we do not cache this Request struct, but we do cache the
   hash of the struct so that we can compare subsequent requests to
   the original request. If the hashes don't match, we return an error.
@@ -14,7 +18,6 @@ defmodule OneAndDone.Request do
           scheme: binary(),
           method: binary(),
           path: binary(),
-          headers: [{binary(), binary()}],
           query_string: binary(),
           body: binary()
         }
@@ -25,7 +28,6 @@ defmodule OneAndDone.Request do
     :scheme,
     :method,
     :path,
-    :headers,
     :query_string,
     :body
   ]

@@ -17,7 +17,6 @@ defimpl OneAndDone.Parser, for: Plug.Conn do
       scheme: conn.scheme,
       method: conn.method,
       path: conn.request_path,
-      headers: conn.req_headers,
       query_string: conn.query_string,
       body: conn.body_params
     }
