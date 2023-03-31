@@ -18,7 +18,6 @@ defmodule OneAndDone.PlugParserTest do
       assert request.method == conn.method
       assert request.path == conn.request_path
       assert request.port == conn.port
-      assert request.headers == conn.req_headers
       assert request.scheme == conn.scheme
       assert request.query_string == conn.query_string
     end

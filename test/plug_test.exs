@@ -106,6 +106,8 @@ defmodule OneAndDone.PlugTest do
     end
   end
 
+  @pre_plugs [{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}]
+
   describe "call/2" do
     test "does nothing with non-idempotent requests" do
       [:get, :delete, :patch]
@@ -136,11 +138,10 @@ defmodule OneAndDone.PlugTest do
         original_conn =
           conn(method, "/hello", "some-body")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
-          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
+          |> Plug.run(@pre_plugs)
 
         conn =
           original_conn
-          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
           |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
@@ -173,8 +174,7 @@ defmodule OneAndDone.PlugTest do
         original_conn =
           conn(method, "/hello", "some-body")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
-          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
-          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
           |> Plug.Conn.put_resp_header("some-header", "value")
@@ -183,8 +183,7 @@ defmodule OneAndDone.PlugTest do
         new_conn =
           conn(method, "/hello", "some-body")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
-          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
-          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
 
         assert new_conn.resp_body == original_conn.resp_body
         assert new_conn.resp_cookies == original_conn.resp_cookies
@@ -208,14 +207,13 @@ defmodule OneAndDone.PlugTest do
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
           |> Plug.Conn.put_resp_header("some-header", "value")
-          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
+          |> Plug.run(@pre_plugs)
           |> Plug.Conn.send_resp(200, "Okay!")
 
         new_conn =
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
-          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
-          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
 
         assert new_conn.state == :sent
       end)
@@ -229,8 +227,7 @@ defmodule OneAndDone.PlugTest do
         original_conn =
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
-          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
-          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
           |> Plug.Conn.put_resp_header("some-header", "value")
@@ -239,8 +236,7 @@ defmodule OneAndDone.PlugTest do
         new_conn =
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
-          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
-          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
 
         assert Plug.Conn.get_resp_header(new_conn, "idempotent-replayed") == ["true"]
         refute Plug.Conn.get_resp_header(original_conn, "idempotent-replayed") == ["true"]
@@ -255,8 +251,7 @@ defmodule OneAndDone.PlugTest do
         _original_conn =
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
-          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
-          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
           |> Plug.Conn.put_resp_header("some-header", "value")
@@ -265,11 +260,74 @@ defmodule OneAndDone.PlugTest do
         new_conn =
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
-          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
-          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
 
         refute Plug.Conn.get_resp_header(new_conn, "idempotent-replayed") == ["true"]
         refute TestCache.get({OneAndDone.Plug, cache_key})
+      end)
+    end
+
+    test "by default, ignores x-request-id and returns original-x-request-id for the original request's x-request-id" do
+      [:post, :put]
+      |> Enum.each(fn method ->
+        cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
+
+        original_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.Conn.put_resp_content_type("text/plain")
+          |> Plug.Conn.put_resp_cookie("some-cookie", "value")
+          |> Plug.Conn.put_resp_header("some-header", "value")
+          |> Plug.Conn.put_resp_header("x-request-id", "1234")
+          |> Plug.Conn.send_resp(200, "Okay!")
+
+        new_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.Conn.put_resp_header("x-request-id", "5678")
+          |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
+
+        refute Plug.Conn.get_resp_header(new_conn, "x-request-id") ==
+                 Plug.Conn.get_resp_header(original_conn, "x-request-id")
+
+        assert Plug.Conn.get_resp_header(new_conn, "original-x-request-id") ==
+                 Plug.Conn.get_resp_header(original_conn, "x-request-id")
+      end)
+    end
+
+    test "ignored response headers are returned without modification, but the original matching header is still returned" do
+      [:post, :put]
+      |> Enum.each(fn method ->
+        cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
+
+        _original_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run(
+            @pre_plugs ++
+              [
+                {OneAndDone.Plug, cache: TestCache, ignored_response_headers: ["some-header"]}
+              ]
+          )
+          |> Plug.Conn.put_resp_content_type("text/plain")
+          |> Plug.Conn.put_resp_cookie("some-cookie", "value")
+          |> Plug.Conn.put_resp_header("some-header", "value")
+          |> Plug.Conn.send_resp(200, "Okay!")
+
+        new_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.Conn.put_resp_header("some-header", "not the same value")
+          |> Plug.run(
+            @pre_plugs ++
+              [
+                {OneAndDone.Plug, cache: TestCache, ignored_response_headers: ["some-header"]}
+              ]
+          )
+
+        assert ["not the same value"] == Plug.Conn.get_resp_header(new_conn, "some-header")
+        assert ["value"] == Plug.Conn.get_resp_header(new_conn, "original-some-header")
       end)
     end
 
@@ -279,8 +337,7 @@ defmodule OneAndDone.PlugTest do
       original_conn =
         conn(:post, "/hello", "some-body")
         |> Plug.Conn.put_req_header("idempotency-key", cache_key)
-        |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
-        |> Plug.run([{OneAndDone.Plug, cache: TestCache, ttl: 0}])
+        |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache, ttl: 0}])
         |> Plug.Conn.put_resp_content_type("text/plain")
         |> Plug.Conn.put_resp_cookie("some-cookie", "value")
         |> Plug.Conn.put_resp_header("some-header", "value")
@@ -291,8 +348,7 @@ defmodule OneAndDone.PlugTest do
       new_conn =
         conn(:post, "/hello")
         |> Plug.Conn.put_req_header("idempotency-key", cache_key)
-        |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
-        |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+        |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
         |> Plug.Conn.put_resp_content_type("text/plain")
         |> Plug.Conn.put_resp_cookie("some-cookie", "different value")
         |> Plug.Conn.put_resp_header("some-header", "different value")

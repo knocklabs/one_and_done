@@ -32,8 +32,20 @@ defmodule OneAndDone.Plug do
           # `supported_methods` is available in the opts passed to the idempotency_key_fn.
           supported_methods: ["POST", "PUT"],
 
+          # Optional: Which response headers to ignore when caching, defaults to ["x-request-id"]
+          # When returning a cached response, some headers should not be modified by the contents of the cache.
+          #
+          # Instead, the ignored headers are returned with the prefix `original-`.
+          #
+          # By default, the `x-request-id` header is not modified. This means that each request will have a
+          # unique `x-request-id` header, even if a cached response is returned for a request. The original request
+          # ID is still available under `original-x-request-id`.
+          #
+          # If you are using a framework that sets a different header for request IDs, you can add it to this list.
+          ignored_response_headers: ["x-request-id"],
+
           # Optional: Function reference to generate the idempotency key for a given request.
-          # By default, uses the value of the "Idempotency-Key" header.
+          # By default, uses the value of the `Idempotency-Key` header.
           # Must return a binary or nil. If nil is returned, the request will not be cached.
           # Default function implementation:
           #
@@ -63,6 +75,13 @@ defmodule OneAndDone.Plug do
       ```
 
   That's it! POST and PUT requests will now be cached by default for 24 hours.
+
+  ## Response headers
+  By default, the "x-request-id" header is not modified. This means that each request will have a
+  unique "x-request-id" header, even if a cached response is returned for a request.
+  By default, the "original-x-request-id" header is set to the value of the "x-request-id" header
+  from the original request. This is useful for tracing the original request that was cached.
+  One and Done sets the "idempotent-replayed" header to "true" if a cached response is returned.
 
   ## Telemetry
 
@@ -119,6 +138,7 @@ defmodule OneAndDone.Plug do
           cache: any,
           ttl: any,
           supported_methods: any,
+          ignored_response_headers: any,
           idempotency_key_fn: any,
           cache_key_fn: any,
           max_key_length: non_neg_integer()
@@ -128,6 +148,7 @@ defmodule OneAndDone.Plug do
       cache: Keyword.get(opts, :cache) || raise(OneAndDone.Errors.CacheMissingError),
       ttl: Keyword.get(opts, :ttl, @ttl),
       supported_methods: Keyword.get(opts, :supported_methods, @supported_methods),
+      ignored_response_headers: Keyword.get(opts, :ignored_response_headers, ["x-request-id"]),
       idempotency_key_fn:
         Keyword.get(opts, :idempotency_key_fn, &__MODULE__.idempotency_key_from_conn/2),
       cache_key_fn: Keyword.get(opts, :cache_key_fn, &__MODULE__.build_cache_key/2),
@@ -160,7 +181,7 @@ defmodule OneAndDone.Plug do
   defp handle_idempotent_request(conn, idempotency_key, opts) do
     case check_cache(conn, idempotency_key, opts) do
       {:ok, cached_response} ->
-        handle_cache_hit(conn, cached_response, idempotency_key)
+        handle_cache_hit(conn, cached_response, idempotency_key, opts)
 
       {:error, :idempotency_key_too_long} ->
         Telemetry.event(
@@ -203,7 +224,7 @@ defmodule OneAndDone.Plug do
     end
   end
 
-  defp handle_cache_hit(conn, response, idempotency_key) do
+  defp handle_cache_hit(conn, response, idempotency_key, opts) do
     if matching_request?(conn, response) do
       Telemetry.event([:request, :cache_hit], %{}, %{
         idempotency_key: idempotency_key,
@@ -217,8 +238,13 @@ defmodule OneAndDone.Plug do
         end)
 
       conn =
-        Enum.reduce(response.headers, conn, fn {key, value}, conn ->
-          Plug.Conn.put_resp_header(conn, key, value)
+        Enum.reduce(response.headers, conn, fn
+          {key, value}, conn ->
+            if key in opts.ignored_response_headers do
+              Plug.Conn.put_resp_header(conn, "original-#{key}", value)
+            else
+              Plug.Conn.put_resp_header(conn, key, value)
+            end
         end)
         |> Plug.Conn.put_resp_header("idempotent-replayed", "true")
 
