@@ -54,6 +54,11 @@ defmodule OneAndDone.Plug do
           # By default, it returns a tuple of the module name and the idempotency key.
           # Default function implementation: fn _conn, idempotency_key -> {__MODULE__, idempotency_key}
           cache_key_fn: &OneAndDone.Plug.build_cache_key/2
+
+          # Optional: Max length of each idempotency key. Defaults to 255 characters.
+          # If the idempotency key is longer than this, we respond with error 400.
+          # Set to 0 to disable this check.
+          max_key_length: 255
       end
       ```
 
@@ -101,19 +106,22 @@ defmodule OneAndDone.Plug do
 
   @behaviour Plug
 
-  alias OneAndDone.Response
+  alias OneAndDone.Parser
+  alias OneAndDone.Request
   alias OneAndDone.Telemetry
 
   @supported_methods ["POST", "PUT"]
   @ttl :timer.hours(24)
+  @default_max_key_length 255
 
   @impl Plug
   @spec init(cache: OneAndDone.Cache.t()) :: %{
           cache: any,
-          cache_key_fn: any,
-          idempotency_key_fn: any,
+          ttl: any,
           supported_methods: any,
-          ttl: any
+          idempotency_key_fn: any,
+          cache_key_fn: any,
+          max_key_length: non_neg_integer()
         }
   def init(opts) do
     %{
@@ -122,8 +130,16 @@ defmodule OneAndDone.Plug do
       supported_methods: Keyword.get(opts, :supported_methods, @supported_methods),
       idempotency_key_fn:
         Keyword.get(opts, :idempotency_key_fn, &__MODULE__.idempotency_key_from_conn/2),
-      cache_key_fn: Keyword.get(opts, :cache_key_fn, &__MODULE__.build_cache_key/2)
+      cache_key_fn: Keyword.get(opts, :cache_key_fn, &__MODULE__.build_cache_key/2),
+      max_key_length: validate_max_key_length!(opts)
     }
+  end
+
+  defp validate_max_key_length!(opts) do
+    case Keyword.get(opts, :max_key_length, @default_max_key_length) do
+      number when is_integer(number) and number >= 0 -> number
+      _ -> raise(OneAndDone.Errors.InvalidMaxKeyLengthError)
+    end
   end
 
   @impl Plug
@@ -144,13 +160,19 @@ defmodule OneAndDone.Plug do
   defp handle_idempotent_request(conn, idempotency_key, opts) do
     case check_cache(conn, idempotency_key, opts) do
       {:ok, cached_response} ->
-        Telemetry.event([:request, :cache_hit], %{}, %{
-          idempotency_key: idempotency_key,
-          conn: conn,
-          response: cached_response
-        })
+        handle_cache_hit(conn, cached_response, idempotency_key)
 
-        handle_cache_hit(conn, cached_response)
+      {:error, :idempotency_key_too_long} ->
+        Telemetry.event(
+          [:request, :idempotency_key_too_long],
+          %{key_length: String.length(idempotency_key), key_length_limit: opts.max_key_length},
+          %{
+            idempotency_key: idempotency_key,
+            conn: conn
+          }
+        )
+
+        Plug.Conn.send_resp(conn, 400, "{\"error\": \"idempotency_key_too_long\"}")
 
       # Cache miss passes through; we cache the response in the response callback
       _ ->
@@ -166,43 +188,92 @@ defmodule OneAndDone.Plug do
   end
 
   defp check_cache(conn, idempotency_key, opts) do
-    Telemetry.span([:request, :cache_get], %{conn: conn, idempotency_key: idempotency_key}, fn ->
-      conn
-      |> opts.cache_key_fn.(idempotency_key)
-      |> opts.cache.get()
-    end)
+    if opts.max_key_length > 0 and String.length(idempotency_key) > opts.max_key_length do
+      {:error, :idempotency_key_too_long}
+    else
+      Telemetry.span(
+        [:request, :cache_get],
+        %{conn: conn, idempotency_key: idempotency_key},
+        fn ->
+          conn
+          |> opts.cache_key_fn.(idempotency_key)
+          |> opts.cache.get()
+        end
+      )
+    end
   end
 
-  defp handle_cache_hit(conn, response) do
-    conn =
-      Enum.reduce(response.cookies, conn, fn {key, %{value: value}}, conn ->
-        Plug.Conn.put_resp_cookie(conn, key, value)
-      end)
+  defp handle_cache_hit(conn, response, idempotency_key) do
+    if matching_request?(conn, response) do
+      Telemetry.event([:request, :cache_hit], %{}, %{
+        idempotency_key: idempotency_key,
+        conn: conn,
+        response: response
+      })
 
-    conn =
-      Enum.reduce(response.headers, conn, fn {key, value}, conn ->
-        Plug.Conn.put_resp_header(conn, key, value)
-      end)
-      |> Plug.Conn.put_resp_header("idempotent-replayed", "true")
+      conn =
+        Enum.reduce(response.cookies, conn, fn {key, %{value: value}}, conn ->
+          Plug.Conn.put_resp_cookie(conn, key, value)
+        end)
 
-    Plug.Conn.send_resp(conn, response.status, response.body)
-    |> Plug.Conn.halt()
+      conn =
+        Enum.reduce(response.headers, conn, fn {key, value}, conn ->
+          Plug.Conn.put_resp_header(conn, key, value)
+        end)
+        |> Plug.Conn.put_resp_header("idempotent-replayed", "true")
+
+      Plug.Conn.send_resp(conn, response.status, response.body)
+      |> Plug.Conn.halt()
+    else
+      Telemetry.event(
+        [:request, :request_mismatch],
+        %{},
+        %{
+          idempotency_key: idempotency_key,
+          conn: conn,
+          response: response
+        }
+      )
+
+      Plug.Conn.send_resp(
+        conn,
+        400,
+        "{\"error\": \"This request does not match the first request used with this idempotency key. This could mean you are reusing idempotency keys across requests. Either make sure the request matches across idempotent requests, or change your idempotency key when making new requests.\"}"
+      )
+    end
+  end
+
+  defp matching_request?(conn, cached_response) do
+    request_hash =
+      Parser.build_request(conn)
+      |> Request.hash()
+
+    cached_response.request_hash == request_hash
   end
 
   defp cache_response(conn, idempotency_key, opts) do
-    Telemetry.span(
-      [:request, :put_cache],
-      %{idempotency_key: idempotency_key, conn: conn},
-      fn ->
-        response = Response.build_response(conn)
+    if conn.status >= 400 and conn.status < 500 do
+      Telemetry.event([:request, :skip_put_cache], %{}, %{
+        idempotency_key: idempotency_key,
+        conn: conn
+      })
 
-        conn
-        |> opts.cache_key_fn.(idempotency_key)
-        |> opts.cache.put({:ok, response}, ttl: opts.ttl)
+      conn
+    else
+      Telemetry.span(
+        [:request, :put_cache],
+        %{idempotency_key: idempotency_key, conn: conn},
+        fn ->
+          response = Parser.build_response(conn)
 
-        conn
-      end
-    )
+          conn
+          |> opts.cache_key_fn.(idempotency_key)
+          |> opts.cache.put({:ok, response}, ttl: opts.ttl)
+
+          conn
+        end
+      )
+    end
   end
 
   # These functions must be public to avoid an ArgumentError during compilation.

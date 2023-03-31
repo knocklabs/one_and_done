@@ -70,6 +70,40 @@ defmodule OneAndDone.PlugTest do
         OneAndDone.Plug.init([])
       end
     end
+
+    test "raises an error if the max_key_length is invalid" do
+      assert_raise OneAndDone.Errors.InvalidMaxKeyLengthError, fn ->
+        OneAndDone.Plug.init(cache: TestCache, max_key_length: "invalid")
+      end
+
+      assert_raise OneAndDone.Errors.InvalidMaxKeyLengthError, fn ->
+        OneAndDone.Plug.init(cache: TestCache, max_key_length: -1)
+      end
+
+      assert_raise OneAndDone.Errors.InvalidMaxKeyLengthError, fn ->
+        OneAndDone.Plug.init(cache: TestCache, max_key_length: 1.5)
+      end
+
+      assert_raise OneAndDone.Errors.InvalidMaxKeyLengthError, fn ->
+        OneAndDone.Plug.init(cache: TestCache, max_key_length: :one)
+      end
+
+      assert_raise OneAndDone.Errors.InvalidMaxKeyLengthError, fn ->
+        OneAndDone.Plug.init(cache: TestCache, max_key_length: :infinity)
+      end
+
+      assert_raise OneAndDone.Errors.InvalidMaxKeyLengthError, fn ->
+        OneAndDone.Plug.init(cache: TestCache, max_key_length: [1, 2, 3])
+      end
+
+      assert_raise OneAndDone.Errors.InvalidMaxKeyLengthError, fn ->
+        OneAndDone.Plug.init(cache: TestCache, max_key_length: %{"key" => "123"})
+      end
+
+      assert_raise OneAndDone.Errors.InvalidMaxKeyLengthError, fn ->
+        OneAndDone.Plug.init(cache: TestCache, max_key_length: [key: 123])
+      end
+    end
   end
 
   describe "call/2" do
@@ -100,11 +134,13 @@ defmodule OneAndDone.PlugTest do
         cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
 
         original_conn =
-          conn(method, "/hello")
+          conn(method, "/hello", "some-body")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
 
         conn =
           original_conn
+          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
           |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
@@ -115,6 +151,8 @@ defmodule OneAndDone.PlugTest do
         struct = TestCache.get({OneAndDone.Plug, cache_key}) |> elem(1)
 
         assert struct == %OneAndDone.Response{
+                 request_hash:
+                   OneAndDone.Parser.build_request(original_conn) |> OneAndDone.Request.hash(),
                  body: "Okay!",
                  cookies: %{"some-cookie" => %{value: "value"}},
                  headers: [
@@ -133,8 +171,9 @@ defmodule OneAndDone.PlugTest do
         cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
 
         original_conn =
-          conn(method, "/hello")
+          conn(method, "/hello", "some-body")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
           |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
@@ -142,8 +181,9 @@ defmodule OneAndDone.PlugTest do
           |> Plug.Conn.send_resp(200, "Okay!")
 
         new_conn =
-          conn(method, "/hello")
+          conn(method, "/hello", "some-body")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
           |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
 
         assert new_conn.resp_body == original_conn.resp_body
@@ -168,11 +208,13 @@ defmodule OneAndDone.PlugTest do
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
           |> Plug.Conn.put_resp_header("some-header", "value")
+          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
           |> Plug.Conn.send_resp(200, "Okay!")
 
         new_conn =
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
           |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
 
         assert new_conn.state == :sent
@@ -187,6 +229,7 @@ defmodule OneAndDone.PlugTest do
         original_conn =
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
           |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
@@ -196,6 +239,7 @@ defmodule OneAndDone.PlugTest do
         new_conn =
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
           |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
 
         assert Plug.Conn.get_resp_header(new_conn, "idempotent-replayed") == ["true"]
@@ -203,12 +247,39 @@ defmodule OneAndDone.PlugTest do
       end)
     end
 
+    test "requests that return error 4xx are not cached" do
+      [:post, :put]
+      |> Enum.each(fn method ->
+        cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
+
+        _original_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
+          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.Conn.put_resp_content_type("text/plain")
+          |> Plug.Conn.put_resp_cookie("some-cookie", "value")
+          |> Plug.Conn.put_resp_header("some-header", "value")
+          |> Plug.Conn.send_resp(400, "Not okay!")
+
+        new_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
+          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+
+        refute Plug.Conn.get_resp_header(new_conn, "idempotent-replayed") == ["true"]
+        refute TestCache.get({OneAndDone.Plug, cache_key})
+      end)
+    end
+
     test "respects TTL" do
       cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
 
       original_conn =
-        conn(:post, "/hello")
+        conn(:post, "/hello", "some-body")
         |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+        |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
         |> Plug.run([{OneAndDone.Plug, cache: TestCache, ttl: 0}])
         |> Plug.Conn.put_resp_content_type("text/plain")
         |> Plug.Conn.put_resp_cookie("some-cookie", "value")
@@ -220,6 +291,7 @@ defmodule OneAndDone.PlugTest do
       new_conn =
         conn(:post, "/hello")
         |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+        |> Plug.run([{Plug.Parsers, parsers: [{:json, json_decoder: Jason}], pass: ["*/*"]}])
         |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
         |> Plug.Conn.put_resp_content_type("text/plain")
         |> Plug.Conn.put_resp_cookie("some-cookie", "different value")

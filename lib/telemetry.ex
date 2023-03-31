@@ -12,6 +12,7 @@ defmodule OneAndDone.Telemetry do
   | `[:one_and_done, :request, :cache_hit]` | Given an idempotency key, we found a cached response. | `idempotency_key` | `conn`, `response` |
   | `[:one_and_done, :request, :cache_miss]` | Given an idempotency key, we didn't find a cached response. | `idempotency_key` | `conn` |
   | `[:one_and_done, :request, :idempotency_key_not_set]` | The request doesn't have an idempotency key and will not be processed further by OneAndDone. |  | `conn` |
+  | `[:one_and_done, :request, :idempotency_key_too_long]` | The idempotency key is too long. A 400 error was returned to the client. | `key_length`, `key_length_limit` | `conn` |
   | `[:one_and_done, :request, :cache_get, :start]` | When we begin checking the cache for a request. |  | `conn`, `idempotency_key` |
   | `[:one_and_done, :request, :cache_get, :stop]` | When we finish checking the cache for a request, including the duration in native units. | `duration` | `conn`, `idempotency_key` |
   | `[:one_and_done, :request, :cache_get, :exception]` | When we finish checking the cache for a request, if an exception was raised. Includes the duration in native units. | `duration`, `exception` | `conn`, `idempotency_key` |
@@ -33,6 +34,7 @@ defmodule OneAndDone.Telemetry do
     [:one_and_done, :request, :cache_hit],
     [:one_and_done, :request, :cache_miss],
     [:one_and_done, :request, :idempotency_key_not_set],
+    [:one_and_done, :request, :idempotency_key_too_long],
     [:one_and_done, :request, :cache_get, :start],
     [:one_and_done, :request, :cache_get, :stop],
     [:one_and_done, :request, :cache_get, :exception],
