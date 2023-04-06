@@ -212,27 +212,11 @@ defmodule OneAndDone.Plug do
         handle_cache_hit(conn, cached_response, idempotency_key, opts)
 
       {:error, :idempotency_key_too_long} ->
-        Telemetry.event(
-          [:request, :idempotency_key_too_long],
-          %{key_length: String.length(idempotency_key), key_length_limit: opts.max_key_length},
-          %{
-            idempotency_key: idempotency_key,
-            conn: conn
-          }
-        )
-
-        Plug.Conn.send_resp(conn, 400, "{\"error\": \"idempotency_key_too_long\"}")
+        handle_idempotency_key_too_long(conn, idempotency_key, opts)
 
       # Cache miss passes through; we cache the response in the response callback
       _ ->
-        Telemetry.event([:request, :cache_miss], %{}, %{
-          idempotency_key: idempotency_key,
-          conn: conn
-        })
-
-        Plug.Conn.register_before_send(conn, fn conn ->
-          cache_response(conn, idempotency_key, opts)
-        end)
+        handle_cache_miss(conn, idempotency_key, opts)
     end
   end
 
@@ -254,48 +238,34 @@ defmodule OneAndDone.Plug do
 
   defp handle_cache_hit(conn, response, idempotency_key, opts) do
     if opts.request_matching_checks_enabled and not opts.check_requests_match_fn.(conn, response) do
-      Telemetry.event(
-        [:request, :request_mismatch],
-        %{},
-        %{
-          idempotency_key: idempotency_key,
-          conn: conn,
-          response: response
-        }
-      )
-
-      Plug.Conn.send_resp(
-        conn,
-        400,
-        "{\"error\": \"This request does not match the first request used with this idempotency key. This could mean you are reusing idempotency keys across requests. Either make sure the request matches across idempotent requests, or change your idempotency key when making new requests.\"}"
-      )
-      |> Plug.Conn.halt()
+      handle_request_mismatch(conn, response, idempotency_key)
     else
-      Telemetry.event([:request, :cache_hit], %{}, %{
-        idempotency_key: idempotency_key,
-        conn: conn,
-        response: response
-      })
-
-      conn =
-        Enum.reduce(response.cookies, conn, fn {key, %{value: value}}, conn ->
-          Plug.Conn.put_resp_cookie(conn, key, value)
-        end)
-
-      conn =
-        Enum.reduce(response.headers, conn, fn
-          {key, value}, conn ->
-            if key in opts.ignored_response_headers do
-              Plug.Conn.put_resp_header(conn, "original-#{key}", value)
-            else
-              Plug.Conn.put_resp_header(conn, key, value)
-            end
-        end)
-        |> Plug.Conn.put_resp_header("idempotent-replayed", "true")
-
-      Plug.Conn.send_resp(conn, response.status, response.body)
-      |> Plug.Conn.halt()
+      send_idempotent_response(conn, response, idempotency_key, opts)
     end
+  end
+
+  defp handle_cache_miss(conn, idempotency_key, opts) do
+    Telemetry.event([:request, :cache_miss], %{}, %{
+      idempotency_key: idempotency_key,
+      conn: conn
+    })
+
+    Plug.Conn.register_before_send(conn, fn conn ->
+      cache_response(conn, idempotency_key, opts)
+    end)
+  end
+
+  defp handle_idempotency_key_too_long(conn, idempotency_key, opts) do
+    Telemetry.event(
+      [:request, :idempotency_key_too_long],
+      %{key_length: String.length(idempotency_key), key_length_limit: opts.max_key_length},
+      %{
+        idempotency_key: idempotency_key,
+        conn: conn
+      }
+    )
+
+    Plug.Conn.send_resp(conn, 400, "{\"error\": \"idempotency_key_too_long\"}")
   end
 
   defp cache_response(conn, idempotency_key, opts) do
@@ -321,6 +291,52 @@ defmodule OneAndDone.Plug do
         end
       )
     end
+  end
+
+  defp handle_request_mismatch(conn, response, idempotency_key) do
+    Telemetry.event(
+      [:request, :request_mismatch],
+      %{},
+      %{
+        idempotency_key: idempotency_key,
+        conn: conn,
+        response: response
+      }
+    )
+
+    Plug.Conn.send_resp(
+      conn,
+      400,
+      "{\"error\": \"This request does not match the first request used with this idempotency key. This could mean you are reusing idempotency keys across requests. Either make sure the request matches across idempotent requests, or change your idempotency key when making new requests.\"}"
+    )
+    |> Plug.Conn.halt()
+  end
+
+  defp send_idempotent_response(conn, response, idempotency_key, opts) do
+    Telemetry.event([:request, :cache_hit], %{}, %{
+      idempotency_key: idempotency_key,
+      conn: conn,
+      response: response
+    })
+
+    conn =
+      Enum.reduce(response.cookies, conn, fn {key, %{value: value}}, conn ->
+        Plug.Conn.put_resp_cookie(conn, key, value)
+      end)
+
+    conn =
+      Enum.reduce(response.headers, conn, fn
+        {key, value}, conn ->
+          if key in opts.ignored_response_headers do
+            Plug.Conn.put_resp_header(conn, "original-#{key}", value)
+          else
+            Plug.Conn.put_resp_header(conn, key, value)
+          end
+      end)
+      |> Plug.Conn.put_resp_header("idempotent-replayed", "true")
+
+    Plug.Conn.send_resp(conn, response.status, response.body)
+    |> Plug.Conn.halt()
   end
 
   # These functions must be public to avoid an ArgumentError during compilation.

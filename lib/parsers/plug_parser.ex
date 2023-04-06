@@ -22,7 +22,7 @@ defimpl OneAndDone.Parser, for: Plug.Conn do
     }
 
     case request do
-      %Request{body: %Plug.Conn.Unfetched{}} -> raise OneAndDone.Errors.UnfetchedBodyError
+      %Request{body: %Plug.Conn.Unfetched{}} -> raise OneAndDone.Errors.PlugUnfetchedBodyError
       _ -> request
     end
   end

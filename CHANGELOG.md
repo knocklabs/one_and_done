@@ -1,8 +1,15 @@
 ## 0.1.2
 
-* Limit the max idempotency key length to 255 characters with the option `max_key_length`
+* Limit the max idempotency key length to 255 characters with the option `max_key_length` (disable by setting it to 0)
 * Compare the originally stored request with the current request to ensure the request structure matches
     * This is to prevent reusing the idempotency key e.g. on a different route or with different parameters
+    * Matching function is configurable with the option `check_requests_match_fn`
+* Add option `request_matching_checks_enabled` to skip checking if requests match
+* Ensure idempotency keys are unique across the same calls using the same method
+    * Calls using the same key but different methods or paths will not be considered duplicates
+* Do not cache responses for status codes >= 400 and < 500
+    * This is to prevent caching errors that may be retryable
+    * 5xx errors are considered non-retryable to reduce system pressure in a failure mode
 
 ## 0.1.1
 

@@ -1,4 +1,4 @@
-defmodule OneAndDone.Errors.UnfetchedBodyError do
+defmodule OneAndDone.Errors.PlugUnfetchedBodyError do
   @moduledoc """
   Raised when a request's body has not been fetched.
 

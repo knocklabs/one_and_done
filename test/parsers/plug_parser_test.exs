@@ -27,7 +27,7 @@ defmodule OneAndDone.PlugParserTest do
         conn(:get, "/hello", "some-body")
         |> Plug.Conn.send_resp(200, "Hello World")
 
-      assert_raise OneAndDone.Errors.UnfetchedBodyError, fn ->
+      assert_raise OneAndDone.Errors.PlugUnfetchedBodyError, fn ->
         Parser.build_request(conn)
       end
     end
