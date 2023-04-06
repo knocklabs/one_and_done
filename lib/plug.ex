@@ -67,6 +67,23 @@ defmodule OneAndDone.Plug do
           # Default function implementation: fn _conn, idempotency_key -> {__MODULE__, idempotency_key}
           cache_key_fn: &OneAndDone.Plug.build_cache_key/2
 
+          # Optional: Function reference to determine if the original request matches the current request.
+          # Given the current connection and a hash of the original request, this function should return
+          # true if the current request matches the original request.
+          # By default, uses :erlang.phash2/2 to generate a hash of the current request. If the hashe
+          # do not match, the request is not idempotent and One and Done will return a 400 response.
+          # To disable this check, use `fn _conn, _original_request_hash -> true end`
+          # Default function implementation:
+          #
+          # fn conn, original_request_hash ->
+          #   request_hash =
+          #     Parser.build_request(conn)
+          #     |> Request.hash()
+          #
+          #   cached_response.request_hash == request_hash
+          # end
+          check_requests_match_fn: &OneAndDone.Plug.matching_request?/2,
+
           # Optional: Max length of each idempotency key. Defaults to 255 characters.
           # If the idempotency key is longer than this, we respond with error 400.
           # Set to 0 to disable this check.
@@ -141,6 +158,7 @@ defmodule OneAndDone.Plug do
           ignored_response_headers: any,
           idempotency_key_fn: any,
           cache_key_fn: any,
+          check_requests_match_fn: any,
           max_key_length: non_neg_integer()
         }
   def init(opts) do
@@ -152,6 +170,7 @@ defmodule OneAndDone.Plug do
       idempotency_key_fn:
         Keyword.get(opts, :idempotency_key_fn, &__MODULE__.idempotency_key_from_conn/2),
       cache_key_fn: Keyword.get(opts, :cache_key_fn, &__MODULE__.build_cache_key/2),
+      check_requests_match_fn: Keyword.get(opts, :check_requests_match_fn, &__MODULE__.matching_request?/2),
       max_key_length: validate_max_key_length!(opts)
     }
   end
@@ -225,7 +244,7 @@ defmodule OneAndDone.Plug do
   end
 
   defp handle_cache_hit(conn, response, idempotency_key, opts) do
-    if matching_request?(conn, response) do
+    if opts.check_requests_match_fn.(conn, response) do
       Telemetry.event([:request, :cache_hit], %{}, %{
         idempotency_key: idempotency_key,
         conn: conn,
@@ -270,14 +289,6 @@ defmodule OneAndDone.Plug do
     end
   end
 
-  defp matching_request?(conn, cached_response) do
-    request_hash =
-      Parser.build_request(conn)
-      |> Request.hash()
-
-    cached_response.request_hash == request_hash
-  end
-
   defp cache_response(conn, idempotency_key, opts) do
     if conn.status >= 400 and conn.status < 500 do
       Telemetry.event([:request, :skip_put_cache], %{}, %{
@@ -304,6 +315,14 @@ defmodule OneAndDone.Plug do
   end
 
   # These functions must be public to avoid an ArgumentError during compilation.
+
+  def matching_request?(conn, cached_response) do
+    request_hash =
+      Parser.build_request(conn)
+      |> Request.hash()
+
+    cached_response.request_hash == request_hash
+  end
 
   @doc false
   def idempotency_key_from_conn(%Plug.Conn{} = conn, opts) do

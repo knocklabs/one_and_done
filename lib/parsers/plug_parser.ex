@@ -7,7 +7,7 @@ defimpl OneAndDone.Parser, for: Plug.Conn do
   alias OneAndDone.Response
 
   @doc """
-  Builds a OneAndDone.Response from a Plug.Conn.
+  Builds a OneAndDone.Request from a Plug.Conn.
   """
   @spec build_request(Plug.Conn.t()) :: OneAndDone.Request.t()
   def build_request(%Plug.Conn{} = conn) do
