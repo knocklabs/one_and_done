@@ -170,7 +170,8 @@ defmodule OneAndDone.Plug do
       idempotency_key_fn:
         Keyword.get(opts, :idempotency_key_fn, &__MODULE__.idempotency_key_from_conn/2),
       cache_key_fn: Keyword.get(opts, :cache_key_fn, &__MODULE__.build_cache_key/2),
-      check_requests_match_fn: Keyword.get(opts, :check_requests_match_fn, &__MODULE__.matching_request?/2),
+      check_requests_match_fn:
+        Keyword.get(opts, :check_requests_match_fn, &__MODULE__.matching_request?/2),
       max_key_length: validate_max_key_length!(opts)
     }
   end
