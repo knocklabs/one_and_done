@@ -21,6 +21,16 @@ defmodule OneAndDone.PlugParserTest do
       assert request.scheme == conn.scheme
       assert request.query_string == conn.query_string
     end
+
+    test "throws an error if the body is not available" do
+      conn =
+        conn(:get, "/hello", "some-body")
+        |> Plug.Conn.send_resp(200, "Hello World")
+
+      assert_raise OneAndDone.Errors.UnfetchedBodyError, fn ->
+        Parser.build_request(conn)
+      end
+    end
   end
 
   describe "build_response/1" do

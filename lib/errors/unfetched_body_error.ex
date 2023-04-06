@@ -15,7 +15,7 @@ defmodule OneAndDone.Errors.UnfetchedBodyError do
 
                You have two options:
 
-               1. Add a `Plug.Parsers` plug before the `OneAndDone.Plug` plug in your router.
+               1. Add a `Plug.Parsers` plug before the `OneAndDone.Plug` plug in your router (See `Plug` docs here: https://hexdocs.pm/plug/Plug.Parsers.html).
                2. Set the `OneAndDone.Plug` plug's `:ignore_body` option to `true`:
 
                    plug OneAndDone.Plug, cache: MyApp.Cache, ignore_body: true

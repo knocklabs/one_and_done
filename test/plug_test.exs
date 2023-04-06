@@ -136,8 +136,9 @@ defmodule OneAndDone.PlugTest do
         cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
 
         original_conn =
-          conn(method, "/hello", "some-body")
+          conn(method, "/hello", Jason.encode!("some-body"))
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.Conn.put_req_header("content-type", "application/json")
           |> Plug.run(@pre_plugs)
 
         conn =
@@ -148,8 +149,10 @@ defmodule OneAndDone.PlugTest do
           |> Plug.Conn.put_resp_header("some-header", "value")
           |> Plug.Conn.send_resp(200, "Okay!")
 
+        method_str = method |> Atom.to_string() |> String.upcase()
+
         refute Plug.run(original_conn, [{OneAndDone.Plug, cache: TestCache}]) == conn
-        struct = TestCache.get({OneAndDone.Plug, cache_key}) |> elem(1)
+        struct = TestCache.get({OneAndDone.Plug, method_str, "/hello", cache_key}) |> elem(1)
 
         assert struct == %OneAndDone.Response{
                  request_hash:
@@ -172,8 +175,9 @@ defmodule OneAndDone.PlugTest do
         cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
 
         original_conn =
-          conn(method, "/hello", "some-body")
+          conn(method, "/hello", Jason.encode!("some-body"))
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.Conn.put_req_header("content-type", "application/json")
           |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
@@ -181,8 +185,9 @@ defmodule OneAndDone.PlugTest do
           |> Plug.Conn.send_resp(200, "Okay!")
 
         new_conn =
-          conn(method, "/hello", "some-body")
+          conn(method, "/hello", Jason.encode!("some-body"))
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.Conn.put_req_header("content-type", "application/json")
           |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
 
         assert new_conn.resp_body == original_conn.resp_body
@@ -203,11 +208,10 @@ defmodule OneAndDone.PlugTest do
         _original_conn =
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
-          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
           |> Plug.Conn.put_resp_header("some-header", "value")
-          |> Plug.run(@pre_plugs)
           |> Plug.Conn.send_resp(200, "Okay!")
 
         new_conn =
@@ -251,7 +255,7 @@ defmodule OneAndDone.PlugTest do
         _original_conn =
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
-          |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
           |> Plug.Conn.put_resp_content_type("text/plain")
           |> Plug.Conn.put_resp_cookie("some-cookie", "value")
           |> Plug.Conn.put_resp_header("some-header", "value")
@@ -260,7 +264,7 @@ defmodule OneAndDone.PlugTest do
         new_conn =
           conn(method, "/hello")
           |> Plug.Conn.put_req_header("idempotency-key", cache_key)
-          |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.run([{OneAndDone.Plug, cache: TestCache}])
 
         refute Plug.Conn.get_resp_header(new_conn, "idempotent-replayed") == ["true"]
         refute TestCache.get({OneAndDone.Plug, cache_key})
@@ -335,8 +339,9 @@ defmodule OneAndDone.PlugTest do
       cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
 
       original_conn =
-        conn(:post, "/hello", "some-body")
+        conn(:post, "/hello", Jason.encode!("some-body"))
         |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+        |> Plug.Conn.put_req_header("content-type", "application/json")
         |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache, ttl: 0}])
         |> Plug.Conn.put_resp_content_type("text/plain")
         |> Plug.Conn.put_resp_cookie("some-cookie", "value")
@@ -358,6 +363,89 @@ defmodule OneAndDone.PlugTest do
       refute new_conn.resp_cookies == original_conn.resp_cookies
       refute new_conn.resp_headers == original_conn.resp_headers
       refute new_conn.status == original_conn.status
+    end
+
+    test "if two requests share the same key and path but have different methods, it doesn't matter" do
+      cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
+
+      original_conn =
+        conn(:post, "/hello", Jason.encode!("some-body"))
+        |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
+        |> Plug.Conn.put_resp_content_type("text/plain")
+        |> Plug.Conn.put_resp_cookie("some-cookie", "value")
+        |> Plug.Conn.put_resp_header("some-header", "value")
+        |> Plug.Conn.send_resp(200, "Okay!")
+
+      failed_conn =
+        conn(:put, "/hello", Jason.encode!(%{"key" => "different-body"}))
+        |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
+        |> Plug.Conn.put_resp_content_type("text/plain")
+        |> Plug.Conn.put_resp_cookie("some-cookie", "different-value")
+        |> Plug.Conn.put_resp_header("some-header", "different-value")
+        |> Plug.Conn.send_resp(204, "Different Okay!")
+
+      refute failed_conn.resp_body == original_conn.resp_body
+      refute failed_conn.resp_cookies == original_conn.resp_cookies
+      refute failed_conn.resp_headers == original_conn.resp_headers
+      refute failed_conn.status == original_conn.status
+    end
+
+    test "if two requests share the same key and method but have different paths, it doesn't matter" do
+      cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
+
+      original_conn =
+        conn(:post, "/hello", Jason.encode!("some-body"))
+        |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
+        |> Plug.Conn.put_resp_content_type("text/plain")
+        |> Plug.Conn.put_resp_cookie("some-cookie", "value")
+        |> Plug.Conn.put_resp_header("some-header", "value")
+        |> Plug.Conn.send_resp(200, "Okay!")
+
+      failed_conn =
+        conn(:post, "/hello-again", Jason.encode!(%{"key" => "different-body"}))
+        |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
+        |> Plug.Conn.put_resp_content_type("text/plain")
+        |> Plug.Conn.put_resp_cookie("some-cookie", "different-value")
+        |> Plug.Conn.put_resp_header("some-header", "different-value")
+        |> Plug.Conn.send_resp(204, "Different Okay!")
+
+      refute failed_conn.resp_body == original_conn.resp_body
+      refute failed_conn.resp_cookies == original_conn.resp_cookies
+      refute failed_conn.resp_headers == original_conn.resp_headers
+      refute failed_conn.status == original_conn.status
+    end
+
+    test "if two requests share the same key but don't match, it fails" do
+      cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
+
+      original_conn =
+        conn(:post, "/hello", Jason.encode!(%{"key" => "some-body"}))
+        |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
+        |> Plug.Conn.put_resp_content_type("text/plain")
+        |> Plug.Conn.put_resp_cookie("some-cookie", "value")
+        |> Plug.Conn.put_resp_header("some-header", "value")
+        |> Plug.Conn.send_resp(200, "Okay!")
+
+      failed_conn =
+        conn(:post, "/hello", Jason.encode!(%{"key" => "different-body"}))
+        |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
+
+      refute failed_conn.resp_body == original_conn.resp_body
+      refute failed_conn.resp_cookies == original_conn.resp_cookies
+      refute failed_conn.resp_headers == original_conn.resp_headers
+      refute failed_conn.status == original_conn.status
     end
   end
 end

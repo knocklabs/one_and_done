@@ -67,10 +67,16 @@ defmodule OneAndDone.Plug do
           # Default function implementation: fn _conn, idempotency_key -> {__MODULE__, idempotency_key}
           cache_key_fn: &OneAndDone.Plug.build_cache_key/2
 
+          # Optional: Flag to enable request match checking. Defaults to true.
+          # If true, the function given in check_requests_match_fn will be called to determine if the
+          # original request matches the current request.
+          # If false, no such check shall be performed.
+          request_matching_checks_enabled: true,
+
           # Optional: Function reference to determine if the original request matches the current request.
           # Given the current connection and a hash of the original request, this function should return
           # true if the current request matches the original request.
-          # By default, uses :erlang.phash2/2 to generate a hash of the current request. If the hashe
+          # By default, uses `:erlang.phash2/2` to generate a hash of the current request. If the `hashes`
           # do not match, the request is not idempotent and One and Done will return a 400 response.
           # To disable this check, use `fn _conn, _original_request_hash -> true end`
           # Default function implementation:
@@ -158,6 +164,7 @@ defmodule OneAndDone.Plug do
           ignored_response_headers: any,
           idempotency_key_fn: any,
           cache_key_fn: any,
+          request_matching_checks_enabled: boolean(),
           check_requests_match_fn: any,
           max_key_length: non_neg_integer()
         }
@@ -170,6 +177,7 @@ defmodule OneAndDone.Plug do
       idempotency_key_fn:
         Keyword.get(opts, :idempotency_key_fn, &__MODULE__.idempotency_key_from_conn/2),
       cache_key_fn: Keyword.get(opts, :cache_key_fn, &__MODULE__.build_cache_key/2),
+      request_matching_checks_enabled: Keyword.get(opts, :request_matching_checks_enabled, true),
       check_requests_match_fn:
         Keyword.get(opts, :check_requests_match_fn, &__MODULE__.matching_request?/2),
       max_key_length: validate_max_key_length!(opts)
@@ -245,7 +253,24 @@ defmodule OneAndDone.Plug do
   end
 
   defp handle_cache_hit(conn, response, idempotency_key, opts) do
-    if opts.check_requests_match_fn.(conn, response) do
+    if opts.request_matching_checks_enabled and not opts.check_requests_match_fn.(conn, response) do
+      Telemetry.event(
+        [:request, :request_mismatch],
+        %{},
+        %{
+          idempotency_key: idempotency_key,
+          conn: conn,
+          response: response
+        }
+      )
+
+      Plug.Conn.send_resp(
+        conn,
+        400,
+        "{\"error\": \"This request does not match the first request used with this idempotency key. This could mean you are reusing idempotency keys across requests. Either make sure the request matches across idempotent requests, or change your idempotency key when making new requests.\"}"
+      )
+      |> Plug.Conn.halt()
+    else
       Telemetry.event([:request, :cache_hit], %{}, %{
         idempotency_key: idempotency_key,
         conn: conn,
@@ -269,23 +294,6 @@ defmodule OneAndDone.Plug do
         |> Plug.Conn.put_resp_header("idempotent-replayed", "true")
 
       Plug.Conn.send_resp(conn, response.status, response.body)
-      |> Plug.Conn.halt()
-    else
-      Telemetry.event(
-        [:request, :request_mismatch],
-        %{},
-        %{
-          idempotency_key: idempotency_key,
-          conn: conn,
-          response: response
-        }
-      )
-
-      Plug.Conn.send_resp(
-        conn,
-        400,
-        "{\"error\": \"This request does not match the first request used with this idempotency key. This could mean you are reusing idempotency keys across requests. Either make sure the request matches across idempotent requests, or change your idempotency key when making new requests.\"}"
-      )
       |> Plug.Conn.halt()
     end
   end
@@ -337,5 +345,6 @@ defmodule OneAndDone.Plug do
   end
 
   @doc false
-  def build_cache_key(_conn, idempotency_key), do: {__MODULE__, idempotency_key}
+  def build_cache_key(conn, idempotency_key),
+    do: {__MODULE__, conn.method, conn.request_path, idempotency_key}
 end
