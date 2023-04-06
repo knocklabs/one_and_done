@@ -309,6 +309,7 @@ defmodule OneAndDone.Plug do
       400,
       "{\"error\": \"This request does not match the first request used with this idempotency key. This could mean you are reusing idempotency keys across requests. Either make sure the request matches across idempotent requests, or change your idempotency key when making new requests.\"}"
     )
+    |> Plug.Conn.put_resp_content_type("application/json")
     |> Plug.Conn.halt()
   end
 

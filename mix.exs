@@ -5,7 +5,7 @@ defmodule OneAndDone.MixProject do
     [
       name: "One and Done",
       app: :one_and_done,
-      version: "0.1.2",
+      version: "0.1.3",
       elixir: "~> 1.13",
       elixirc_paths: elixirc_paths(Mix.env()),
       package: package(),

@@ -1,3 +1,7 @@
+## 0.1.3
+
+* Set content-type response header to application/json when returning a 400 when reusing an idempotency key incorrectly
+
 ## 0.1.2
 
 * Limit the max idempotency key length to 255 characters with the option `max_key_length` (disable by setting it to 0)
