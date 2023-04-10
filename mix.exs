@@ -5,12 +5,12 @@ defmodule OneAndDone.MixProject do
     [
       name: "One and Done",
       app: :one_and_done,
-      version: "0.1.3",
+      version: "0.1.4",
       elixir: "~> 1.13",
       elixirc_paths: elixirc_paths(Mix.env()),
       package: package(),
       description: description(),
-      source_url: "https://github.com/knocklabs/one-and-done",
+      source_url: "https://github.com/knocklabs/one_and_done",
       docs: [
         # The main page in the docs
         main: "readme",
@@ -47,7 +47,7 @@ defmodule OneAndDone.MixProject do
     [
       name: "one_and_done",
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/knocklabs/one-and-done"}
+      links: %{"GitHub" => "https://github.com/knocklabs/one_and_done"}
     ]
   end
 
