@@ -365,6 +365,42 @@ defmodule OneAndDone.PlugTest do
       refute new_conn.status == original_conn.status
     end
 
+    test "respects a dynamic TTL" do
+      cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
+
+      original_conn =
+        conn(:post, "/hello", Jason.encode!("some-body"))
+        |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Plug.run(
+          @pre_plugs ++
+            [
+              {OneAndDone.Plug,
+               cache: TestCache, ttl: :timer.seconds(1), build_ttl_fn: fn _, ^cache_key -> 100 end}
+            ]
+        )
+        |> Plug.Conn.put_resp_content_type("text/plain")
+        |> Plug.Conn.put_resp_cookie("some-cookie", "value")
+        |> Plug.Conn.put_resp_header("some-header", "value")
+        |> Plug.Conn.send_resp(200, "Okay!")
+
+      Process.sleep(150)
+
+      new_conn =
+        conn(:post, "/hello")
+        |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+        |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
+        |> Plug.Conn.put_resp_content_type("text/plain")
+        |> Plug.Conn.put_resp_cookie("some-cookie", "different value")
+        |> Plug.Conn.put_resp_header("some-header", "different value")
+        |> Plug.Conn.send_resp(201, "Different response")
+
+      refute new_conn.resp_body == original_conn.resp_body
+      refute new_conn.resp_cookies == original_conn.resp_cookies
+      refute new_conn.resp_headers == original_conn.resp_headers
+      refute new_conn.status == original_conn.status
+    end
+
     test "if two requests share the same key and path but have different methods, it doesn't matter" do
       cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
 
