@@ -25,6 +25,16 @@ defmodule OneAndDone.Plug do
           # Optional: How long to keep entries, defaults to 86_400 (24 hours)
           ttl: 86_400,
 
+          # Optional: Function reference to generate an idempotence TTL per request.
+          # Takes the current `Plug.Conn` as the first argument and the current
+          # `idempotency_key` as the second.
+          #
+          # When provided, this function is called before falling back to the
+          # `ttl` option.
+          #
+          # Defaults to `nil`.
+          build_ttl_fn: &OneAndDone.Plug.build_ttl/2,
+
           # Optional: Which methods to cache, defaults to ["POST", "PUT"]
           # Used by the default idempotency_key_fn to quickly determine if the request
           # can be cached. If you override idempotency_key_fn, consider checking the
@@ -160,6 +170,7 @@ defmodule OneAndDone.Plug do
   @spec init(cache: OneAndDone.Cache.t()) :: %{
           cache: any,
           ttl: any,
+          build_ttl_fn: any,
           supported_methods: any,
           ignored_response_headers: any,
           idempotency_key_fn: any,
@@ -172,6 +183,7 @@ defmodule OneAndDone.Plug do
     %{
       cache: Keyword.get(opts, :cache) || raise(OneAndDone.Errors.CacheMissingError),
       ttl: Keyword.get(opts, :ttl, @ttl),
+      build_ttl_fn: Keyword.get(opts, :build_ttl_fn),
       supported_methods: Keyword.get(opts, :supported_methods, @supported_methods),
       ignored_response_headers: Keyword.get(opts, :ignored_response_headers, ["x-request-id"]),
       idempotency_key_fn:
@@ -282,16 +294,27 @@ defmodule OneAndDone.Plug do
         %{idempotency_key: idempotency_key, conn: conn},
         fn ->
           response = Parser.build_response(conn)
+          ttl = build_ttl(conn, idempotency_key, opts)
 
           conn
           |> opts.cache_key_fn.(idempotency_key)
-          |> opts.cache.put({:ok, response}, ttl: opts.ttl)
+          |> opts.cache.put({:ok, response}, ttl: ttl)
 
           conn
         end
       )
     end
   end
+
+  defp build_ttl(conn, idempotency_key, %{build_ttl_fn: build_ttl_fn} = opts)
+       when is_function(build_ttl_fn, 2) do
+    case build_ttl_fn.(conn, idempotency_key) do
+      ttl when is_integer(ttl) -> ttl
+      _ -> opts.ttl
+    end
+  end
+
+  defp build_ttl(_, _, opts), do: opts.ttl
 
   defp handle_request_mismatch(conn, response, idempotency_key) do
     Telemetry.event(
