@@ -306,16 +306,15 @@ defmodule OneAndDone.Plug do
     end
   end
 
-  @doc false
-  def build_ttl(conn, idempotency_key, %{build_ttl_fn: build_ttl_fn} = opts)
-      when is_function(build_ttl_fn, 2) do
+  defp build_ttl(conn, idempotency_key, %{build_ttl_fn: build_ttl_fn} = opts)
+       when is_function(build_ttl_fn, 2) do
     case build_ttl_fn.(conn, idempotency_key) do
       ttl when is_integer(ttl) -> ttl
       _ -> opts.ttl
     end
   end
 
-  def build_ttl(_, _, opts), do: opts.ttl
+  defp build_ttl(_, _, opts), do: opts.ttl
 
   defp handle_request_mismatch(conn, response, idempotency_key) do
     Telemetry.event(
