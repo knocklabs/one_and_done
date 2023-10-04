@@ -15,7 +15,7 @@ One and Done depends on having a pre-existing cache like [Nebulex](https://hexdo
 ```elixir
 def deps do
   [
-    {:one_and_done, "~> 0.1.4"}
+    {:one_and_done, "~> 0.1.5"}
   ]
 end
 ```
