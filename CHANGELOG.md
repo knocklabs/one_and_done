@@ -1,3 +1,7 @@
+## 0.1.4
+
+* Adds a new `build_ttl_fn` option to `OneAndDone.Plug`. Provide a function here to generate a dynamic idempotency TTL per request. If not provided, or if the function returns a non-integer value, OneAndDone falls back to the `ttl` option and then finally the 24 hour default.
+
 ## 0.1.3
 
 * Set content-type response header to application/json when returning a 400 when reusing an idempotency key incorrectly
