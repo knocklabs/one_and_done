@@ -9,7 +9,7 @@ defmodule OneAndDone.Plug do
       ```elixir
       def deps do
         [
-          {:one_and_done, "~> 0.1.4"}
+          {:one_and_done, "~> 0.1.5"}
         ]
       end
       ```
