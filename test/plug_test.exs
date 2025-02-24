@@ -483,5 +483,20 @@ defmodule OneAndDone.PlugTest do
       refute failed_conn.resp_headers == original_conn.resp_headers
       refute failed_conn.status == original_conn.status
     end
+
+    test "returns 400 for idempotency keys which are too long" do
+      cache_key = String.duplicate("a", 259)
+
+      conn =
+        conn(:post, "/hello", Jason.encode!(%{"key" => "some-body"}))
+        |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
+
+      assert conn.halted
+      assert conn.status == 400
+      assert ["application/json" <> _] = Plug.Conn.get_resp_header(conn, "content-type")
+      assert conn.resp_body == ~s({"error": "idempotency_key_too_long"})
+    end
   end
 end
