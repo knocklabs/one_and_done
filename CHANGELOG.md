@@ -1,3 +1,9 @@
+# Changelog
+
+## 0.1.6
+
+* Fix an issue where the Plug conn wouldn't be halted when responding with an error related to the idempotency key being too long.
+
 ## 0.1.5
 
 * Adds a new `build_ttl_fn` option to `OneAndDone.Plug`. Provide a function here to generate a dynamic idempotency TTL per request. If not provided, or if the function returns a non-integer value, OneAndDone falls back to the `ttl` option and then finally the 24 hour default.
