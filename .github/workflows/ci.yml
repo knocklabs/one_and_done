@@ -1,5 +1,4 @@
-name: One and Done CI/CD
-
+name: One and Done CI
 
 on:
   # Triggers the workflow on push or pull request events but only for the main branch
@@ -12,48 +11,49 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
-      CI_RUN: true
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      matrix:
+        include:
+          - elixir: "1.18"
+            erlang: "27.2"
+
+          # Oldest-supported Erlang and Elixir versions.
+          - elixir: "1.14.5-otp-25"
+            erlang: "25.3.2"
     steps:
-      - uses: actions/checkout@v3
+      - name: Check out this repository
+        uses: actions/checkout@v4
 
-      - name: Read .tool-versions
-        uses: marocchino/tool-versions-action@v1
-        id: versions
-
-      - uses: erlef/setup-elixir@e3f6ffe2878180f57318bf13febd3933ee81f664
+      - uses: erlef/setup-beam@v1.18
         with:
-          elixir-version: ${{ steps.versions.outputs.elixir }}
-          otp-version: ${{ steps.versions.outputs.erlang }}
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.erlang }}
 
-      - name: Retrieve mix cache
-        uses: actions/cache@v3
+      - name: Retrieve Mix cache
+        uses: actions/cache@v4
         id: "mix-cache"
         with:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-1-${{ hashFiles('**/mix.lock') }}
+          key: ${{ runner.os }}-${{ matrix.elixir }}-${{ matrix.erlang }}-${{ hashFiles('**/mix.lock') }}
           restore-keys: |
-            ${{ runner.os }}-mix-1-
+            ${{ runner.os }}-${{ matrix.elixir }}-${{ matrix.erlang }}-
 
-      - name: Install Mix Dependencies
+      - name: Install Mix dependencies
         if: steps.mix-cache.outputs.cache-hit != 'true'
-        run: |
-          mix local.rebar --force
-          mix local.hex 2.0.6 --force
-          mix deps.get
-          mix deps.compile
+        run: mix deps.get
 
-      - name: Check Formatting
+      - name: Check formatting
         run: mix format --check-formatted
-      
+
       - name: Run credo
         run: mix credo --strict
 
       # Compile for the test env before test to catch any compiler errors + warnings
       - name: Precompile
-        run: MIX_ENV=test mix compile --warnings-as-errors
+        run: mix compile --warnings-as-errors
 
       # Run tests with compiler warnings causing a failure
       - name: Run tests
