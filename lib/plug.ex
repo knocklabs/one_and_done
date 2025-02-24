@@ -277,7 +277,7 @@ defmodule OneAndDone.Plug do
       }
     )
 
-    Plug.Conn.send_resp(conn, 400, "{\"error\": \"idempotency_key_too_long\"}")
+    send_400_response(conn, "idempotency_key_too_long")
   end
 
   defp cache_response(conn, idempotency_key, opts) do
@@ -327,12 +327,18 @@ defmodule OneAndDone.Plug do
       }
     )
 
+    send_400_response(conn, """
+    This request does not match the first request used with this idempotency key. \
+    This could mean you are reusing idempotency keys across requests. Either make sure the \
+    request matches across idempotent requests, or change your idempotency key when making \
+    new requests.\
+    """)
+  end
+
+  defp send_400_response(conn, message) do
     conn
     |> Plug.Conn.put_resp_content_type("application/json")
-    |> Plug.Conn.send_resp(
-      400,
-      "{\"error\": \"This request does not match the first request used with this idempotency key. This could mean you are reusing idempotency keys across requests. Either make sure the request matches across idempotent requests, or change your idempotency key when making new requests.\"}"
-    )
+    |> Plug.Conn.send_resp(400, ~s({"error": "#{message}"}))
     |> Plug.Conn.halt()
   end
 
