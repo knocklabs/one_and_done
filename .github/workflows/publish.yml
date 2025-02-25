@@ -1,3 +1,5 @@
+name: "Publlish to Hex"
+
 on:
   release:
     types: [published]
@@ -6,10 +8,20 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out
-        uses: actions/checkout@v2
+      - name: Check out this repository
+        uses: actions/checkout@v4
 
-      - name: Publish to Hex.pm
-        uses: brentjanderson/action-publish-hex@714f06cb73711ad4627fa8ad48b8a3efb66805fa
+      - name: Set up Elixir and Erlang
+        uses: erlef/setup-beam@v1.18
+        with:
+          elixir-version: "1.18"
+          otp-version: "27.2"
+
+      - name: Install Mix dependencies
+        run: mix deps.get
+
+      # https://hex.pm/docs/publish#publishing-from-ci
+      - name: Publish to Hex
+        run: mix hex.publish --yes
         env:
-          HEX_API_KEY: ${{ secrets.KNOCK_HEX_API_KEY }}
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
