@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+* Adds `capture_5xx_responses` option (defaults to `true`) for disabling caching of 500-level responses for idempotent replay.
+
 ## 0.1.6
 
 * Fix an issue where the Plug conn wouldn't be halted when responding with an error related to the idempotency key being too long.

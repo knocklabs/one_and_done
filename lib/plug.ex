@@ -103,7 +103,10 @@ defmodule OneAndDone.Plug do
           # Optional: Max length of each idempotency key. Defaults to 255 characters.
           # If the idempotency key is longer than this, we respond with error 400.
           # Set to 0 to disable this check.
-          max_key_length: 255
+          max_key_length: 255,
+
+          # Optional: Flag to enable caching of 5xx responses. Defaults to true.
+          capture_5xx_responses: true
       end
       ```
 
@@ -177,7 +180,8 @@ defmodule OneAndDone.Plug do
           cache_key_fn: any,
           request_matching_checks_enabled: boolean(),
           check_requests_match_fn: any,
-          max_key_length: non_neg_integer()
+          max_key_length: non_neg_integer(),
+          capture_5xx_responses: boolean()
         }
   def init(opts) do
     %{
@@ -192,7 +196,8 @@ defmodule OneAndDone.Plug do
       request_matching_checks_enabled: Keyword.get(opts, :request_matching_checks_enabled, true),
       check_requests_match_fn:
         Keyword.get(opts, :check_requests_match_fn, &__MODULE__.matching_request?/2),
-      max_key_length: validate_max_key_length!(opts)
+      max_key_length: validate_max_key_length!(opts),
+      capture_5xx_responses: Keyword.get(opts, :capture_5xx_responses, true)
     }
   end
 
@@ -281,7 +286,7 @@ defmodule OneAndDone.Plug do
   end
 
   defp cache_response(conn, idempotency_key, opts) do
-    if conn.status >= 400 and conn.status < 500 do
+    if skip_cache?(conn, opts) do
       Telemetry.event([:request, :skip_put_cache], %{}, %{
         idempotency_key: idempotency_key,
         conn: conn
@@ -305,6 +310,10 @@ defmodule OneAndDone.Plug do
       )
     end
   end
+
+  defp skip_cache?(conn, _opts) when conn.status >= 400 and conn.status < 500, do: true
+  defp skip_cache?(conn, opts) when conn.status >= 500, do: not opts.capture_5xx_responses
+  defp skip_cache?(_conn, _opts), do: false
 
   defp build_ttl(conn, idempotency_key, %{build_ttl_fn: build_ttl_fn} = opts)
        when is_function(build_ttl_fn, 2) do
