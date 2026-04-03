@@ -484,6 +484,44 @@ defmodule OneAndDone.PlugTest do
       refute failed_conn.status == original_conn.status
     end
 
+    test "requests that return error 5xx are cached by default" do
+      [:post, :put]
+      |> Enum.each(fn method ->
+        cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
+
+        _original_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run(@pre_plugs ++ [{OneAndDone.Plug, cache: TestCache}])
+          |> Plug.Conn.put_resp_content_type("text/plain")
+          |> Plug.Conn.send_resp(500, "Internal Server Error")
+
+        method_str = method |> Atom.to_string() |> String.upcase()
+
+        assert TestCache.get({OneAndDone.Plug, method_str, "/hello", cache_key}) != nil
+      end)
+    end
+
+    test "requests that return error 5xx are not cached when capture_5xx_responses is false" do
+      [:post, :put]
+      |> Enum.each(fn method ->
+        cache_key = :rand.uniform(1_000_000) |> Integer.to_string()
+
+        _original_conn =
+          conn(method, "/hello")
+          |> Plug.Conn.put_req_header("idempotency-key", cache_key)
+          |> Plug.run(
+            @pre_plugs ++ [{OneAndDone.Plug, cache: TestCache, capture_5xx_responses: false}]
+          )
+          |> Plug.Conn.put_resp_content_type("text/plain")
+          |> Plug.Conn.send_resp(500, "Internal Server Error")
+
+        method_str = method |> Atom.to_string() |> String.upcase()
+
+        assert TestCache.get({OneAndDone.Plug, method_str, "/hello", cache_key}) == nil
+      end)
+    end
+
     test "returns 400 for idempotency keys which are too long" do
       cache_key = String.duplicate("a", 259)
 
