@@ -6,13 +6,18 @@ on:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    # The hex-publish environment is the one the Hex workload identity trusts.
+    environment: hex-publish
+    permissions:
+      contents: read
+      id-token: write # Required to publish with a Hex workload identity
     steps:
       - name: Check out this repository
         uses: actions/checkout@v4
 
       - name: Set up Elixir and Erlang
-        uses: erlef/setup-beam@v1.18
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
         with:
           elixir-version: "1.18"
           otp-version: "27.2"
@@ -23,5 +28,3 @@ jobs:
       # https://hex.pm/docs/publish#publishing-from-ci
       - name: Publish to Hex
         run: mix hex.publish --yes
-        env:
-          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
